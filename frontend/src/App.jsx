@@ -8,12 +8,12 @@ import { CreateCourse } from "./pages/CreateCourse";
 import { MyCertificates } from "./pages/MyCertificates";
 
 export default function App() {
-  const { account, signer, connect } = useWallet();
+  const { account, signer, connect, disconnect } = useWallet();
   const { courseRegistry, certificateNFT } = useContract(signer);
 
   return (
     <BrowserRouter>
-      <Navbar account={account} connect={connect} />
+      <Navbar account={account} connect={connect} disconnect={disconnect} />
       <Routes>
         <Route path="/" element={<Home />} />
         <Route

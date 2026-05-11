@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { ethers } from "ethers";
 
 export function useWallet() {
@@ -6,7 +6,7 @@ export function useWallet() {
   const [provider, setProvider] = useState(null);
   const [signer, setSigner] = useState(null);
 
-  async function connect() {
+  const connect = useCallback(async () => {
     if (!window.ethereum) {
       alert("Install MetaMask to use this app");
       return;
@@ -18,9 +18,15 @@ export function useWallet() {
     setProvider(browserProvider);
     setSigner(walletSigner);
     setAccount(address);
-  }
+  }, []);
 
-  // Restore session on page load without prompting the user
+  const disconnect = useCallback(() => {
+    setAccount(null);
+    setProvider(null);
+    setSigner(null);
+  }, []);
+
+  // Restore existing session on mount without prompting
   useEffect(() => {
     async function tryAutoConnect() {
       if (!window.ethereum) return;
@@ -44,17 +50,15 @@ export function useWallet() {
   useEffect(() => {
     if (!window.ethereum) return;
     const handleAccountsChanged = (accounts) => {
-      setAccount(accounts[0] || null);
-      if (!accounts[0]) {
-        setProvider(null);
-        setSigner(null);
+      if (accounts.length === 0) {
+        disconnect();
+      } else {
+        setAccount(accounts[0]);
       }
     };
     window.ethereum.on("accountsChanged", handleAccountsChanged);
-    return () => {
-      window.ethereum.removeListener("accountsChanged", handleAccountsChanged);
-    };
-  }, []);
+    return () => window.ethereum.removeListener("accountsChanged", handleAccountsChanged);
+  }, [disconnect]);
 
-  return { account, provider, signer, connect };
+  return { account, provider, signer, connect, disconnect };
 }
