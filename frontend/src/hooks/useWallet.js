@@ -20,6 +20,27 @@ export function useWallet() {
     setAccount(address);
   }
 
+  // Restore session on page load without prompting the user
+  useEffect(() => {
+    async function tryAutoConnect() {
+      if (!window.ethereum) return;
+      try {
+        const browserProvider = new ethers.BrowserProvider(window.ethereum);
+        const accounts = await browserProvider.send("eth_accounts", []);
+        if (accounts.length > 0) {
+          const walletSigner = await browserProvider.getSigner();
+          const address = await walletSigner.getAddress();
+          setProvider(browserProvider);
+          setSigner(walletSigner);
+          setAccount(address);
+        }
+      } catch {
+        // no prior session
+      }
+    }
+    tryAutoConnect();
+  }, []);
+
   useEffect(() => {
     if (!window.ethereum) return;
     const handleAccountsChanged = (accounts) => {

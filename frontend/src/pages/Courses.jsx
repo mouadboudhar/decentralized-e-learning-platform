@@ -1,24 +1,37 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { ethers } from "ethers";
 import { CourseCard } from "../components/CourseCard";
+import { COURSE_REGISTRY_ADDRESS, COURSE_REGISTRY_ABI } from "../utils/contracts";
 
 export function Courses({ account, courseRegistry }) {
   const [courses, setCourses] = useState([]);
   const [enrolledMap, setEnrolledMap] = useState({});
   const [loading, setLoading] = useState(true);
 
+  // Read-only contract for fetching courses without a connected wallet
+  const readContract = useMemo(() => {
+    if (courseRegistry) return courseRegistry;
+    if (!window.ethereum) return null;
+    const provider = new ethers.BrowserProvider(window.ethereum);
+    return new ethers.Contract(COURSE_REGISTRY_ADDRESS, COURSE_REGISTRY_ABI, provider);
+  }, [courseRegistry]);
+
   const fetchCourses = useCallback(async () => {
-    if (!courseRegistry) return;
+    if (!readContract) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
-      const count = await courseRegistry.courseCount();
+      const count = await readContract.courseCount();
       const list = [];
       for (let i = 1; i <= Number(count); i++) {
-        const course = await courseRegistry.courses(i);
+        const course = await readContract.courses(i);
         list.push(course);
       }
       setCourses(list);
 
-      if (account) {
+      if (account && courseRegistry) {
         const enrolled = {};
         for (const course of list) {
           enrolled[Number(course.id)] = await courseRegistry.isEnrolled(
@@ -28,10 +41,12 @@ export function Courses({ account, courseRegistry }) {
         }
         setEnrolledMap(enrolled);
       }
+    } catch (err) {
+      console.error("Failed to fetch courses:", err);
     } finally {
       setLoading(false);
     }
-  }, [courseRegistry, account]);
+  }, [readContract, courseRegistry, account]);
 
   useEffect(() => {
     fetchCourses();
@@ -41,9 +56,14 @@ export function Courses({ account, courseRegistry }) {
     if (!courseRegistry) return;
     const course = courses.find((c) => Number(c.id) === courseId);
     if (!course) return;
-    const tx = await courseRegistry.enroll(courseId, { value: course.price });
-    await tx.wait();
-    await fetchCourses();
+    try {
+      const tx = await courseRegistry.enroll(courseId, { value: course.price });
+      await tx.wait();
+      await fetchCourses();
+    } catch (err) {
+      console.error("Enroll failed:", err);
+      alert(err.reason || err.message);
+    }
   }
 
   if (loading) {
