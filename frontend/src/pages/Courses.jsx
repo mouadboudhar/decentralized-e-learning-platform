@@ -9,11 +9,12 @@ export function Courses({ account, courseRegistry }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // JsonRpcProvider reads directly from the local node — no MetaMask network dependency
+  // Use Vite's proxied /rpc endpoint so the browser stays same-origin (no CORS block)
   const readContract = useMemo(() => {
     if (courseRegistry) return courseRegistry;
     try {
-      const provider = new ethers.JsonRpcProvider("http://127.0.0.1:8545");
+      const rpcUrl = `${window.location.origin}/rpc`;
+      const provider = new ethers.JsonRpcProvider(rpcUrl);
       return new ethers.Contract(COURSE_REGISTRY_ADDRESS, COURSE_REGISTRY_ABI, provider);
     } catch {
       return null;

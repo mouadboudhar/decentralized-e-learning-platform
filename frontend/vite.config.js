@@ -4,4 +4,14 @@ import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  server: {
+    proxy: {
+      // Proxy /rpc → hardhat node to avoid CORS on JSON-RPC POST requests
+      '/rpc': {
+        target: 'http://127.0.0.1:8545',
+        changeOrigin: true,
+        rewrite: () => '/',
+      },
+    },
+  },
 })
