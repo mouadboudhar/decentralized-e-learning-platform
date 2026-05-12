@@ -1,45 +1,45 @@
 #!/usr/bin/env bash
 set -e
+cd "$(dirname "$0")"
 
-ROOT="$(cd "$(dirname "$0")" && pwd)"
+# ── Docker path (preferred — solves WSL2 → Windows MetaMask networking) ──────
+if command -v docker &>/dev/null && docker info &>/dev/null 2>&1; then
+  echo "Starting Hardhat node via Docker..."
+  echo "MetaMask RPC URL: http://localhost:8545  |  Chain ID: 31337"
+  echo ""
+  # --build rebuilds only when Dockerfile/contracts change (cached otherwise)
+  docker compose up --build
+  exit 0
+fi
 
-# Kill any existing node on 8545
+# ── Fallback: native Hardhat (no Docker) ─────────────────────────────────────
+echo "Docker not found — using native Hardhat."
+echo "NOTE: if MetaMask can't reach the node, install Docker Desktop."
+echo ""
+
 if lsof -ti:8545 &>/dev/null; then
   echo "Stopping existing node on :8545..."
   kill "$(lsof -ti:8545)" 2>/dev/null || true
   sleep 1
 fi
 
-echo "Starting Hardhat node (listening on all interfaces)..."
-# --hostname 0.0.0.0 makes the node reachable from Windows when running inside WSL2
 npx hardhat node --hostname 0.0.0.0 > /tmp/hh-node.log 2>&1 &
 HH_PID=$!
 
-# Wait until the node is ready
 for i in $(seq 1 20); do
-  if grep -q "Started HTTP" /tmp/hh-node.log 2>/dev/null; then
-    break
-  fi
+  grep -q "Started HTTP" /tmp/hh-node.log 2>/dev/null && break
   sleep 0.5
 done
 
-echo "Deploying contracts..."
 npx hardhat run scripts/deploy.js --network localhost
 
 echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  Hardhat node : http://0.0.0.0:8545"
-echo "  From Windows : http://localhost:8545"
-echo "  Node PID     : $HH_PID"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  MetaMask RPC URL : http://localhost:8545"
+echo "  Chain ID         : 31337"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
-echo "  MetaMask RPC URL should be: http://localhost:8545"
-echo ""
-echo "  Next: open a new terminal and run"
-echo "    cd frontend && npm run dev"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo ""
-echo "Press Ctrl+C to stop the node."
+echo "Press Ctrl+C to stop."
 
-# Keep script alive so Ctrl+C kills the node cleanly
 trap "kill $HH_PID 2>/dev/null; echo 'Node stopped.'" EXIT
 wait $HH_PID

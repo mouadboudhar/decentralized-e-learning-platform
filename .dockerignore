@@ -1,0 +1,6 @@
+node_modules
+frontend
+artifacts
+cache
+.env
+.git
