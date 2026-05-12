@@ -10,8 +10,9 @@ if lsof -ti:8545 &>/dev/null; then
   sleep 1
 fi
 
-echo "Starting Hardhat node..."
-npx hardhat node > /tmp/hh-node.log 2>&1 &
+echo "Starting Hardhat node (listening on all interfaces)..."
+# --hostname 0.0.0.0 makes the node reachable from Windows when running inside WSL2
+npx hardhat node --hostname 0.0.0.0 > /tmp/hh-node.log 2>&1 &
 HH_PID=$!
 
 # Wait until the node is ready
@@ -26,13 +27,16 @@ echo "Deploying contracts..."
 npx hardhat run scripts/deploy.js --network localhost
 
 echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  Hardhat node : http://127.0.0.1:8545"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  Hardhat node : http://0.0.0.0:8545"
+echo "  From Windows : http://localhost:8545"
 echo "  Node PID     : $HH_PID"
+echo ""
+echo "  MetaMask RPC URL should be: http://localhost:8545"
 echo ""
 echo "  Next: open a new terminal and run"
 echo "    cd frontend && npm run dev"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 echo "Press Ctrl+C to stop the node."
 
