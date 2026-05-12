@@ -1,27 +1,34 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { ethers } from "ethers";
 import { CourseCard } from "../components/CourseCard";
 import { COURSE_REGISTRY_ADDRESS, COURSE_REGISTRY_ABI } from "../utils/contracts";
 
 // Reads go through the Vite dev-server proxy (/rpc → hardhat-node:8545).
-// This is server-side forwarding — zero CORS involvement, no MetaMask required,
-// works identically in Docker and native WSL2.
+// Server-side forwarding: zero CORS, no MetaMask needed, works in Docker and WSL2.
 function makeReadProvider() {
   return new ethers.JsonRpcProvider(
     `${window.location.origin}/rpc`,
     { chainId: 31337, name: "hardhat" },
-    { staticNetwork: true }  // skip background eth_chainId polling
+    { staticNetwork: true }
   );
 }
+
+// Retry on transient errors: node not yet ready or contract not yet deployed
+function isRetryable(err) {
+  return ['BAD_DATA', 'NETWORK_ERROR', 'SERVER_ERROR', 'UNKNOWN_ERROR'].includes(err?.code);
+}
+
+const MAX_RETRIES = 15; // ~30 seconds
+const RETRY_MS = 2000;
 
 export function Courses({ account, courseRegistry }) {
   const [courses, setCourses] = useState([]);
   const [enrolledMap, setEnrolledMap] = useState({});
-  const [loading, setLoading] = useState(true);
+  const [phase, setPhase] = useState("loading"); // loading | waiting | ready | error
   const [error, setError] = useState(null);
+  const [retries, setRetries] = useState(0);
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  // If the user is connected, use their signer contract (covers writes too);
-  // otherwise fall back to a read-only provider through the proxy.
   const readContract = useMemo(() => {
     if (courseRegistry) return courseRegistry;
     return new ethers.Contract(
@@ -31,42 +38,62 @@ export function Courses({ account, courseRegistry }) {
     );
   }, [courseRegistry]);
 
-  const fetchCourses = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const count = await readContract.courseCount();
-      const list = [];
-      for (let i = 1; i <= Number(count); i++) {
-        const c = await readContract.courses(i);
-        list.push({
-          id: Number(c.id),
-          instructor: c.instructor,
-          ipfsHash: c.ipfsHash,
-          price: c.price,
-          active: c.active,
-        });
-      }
-      setCourses(list);
-
-      if (account && courseRegistry) {
-        const enrolled = {};
-        for (const c of list) {
-          enrolled[c.id] = await courseRegistry.isEnrolled(c.id, account);
-        }
-        setEnrolledMap(enrolled);
-      }
-    } catch (err) {
-      console.error("fetchCourses:", err);
-      setError(err.message || "Failed to load courses.");
-    } finally {
-      setLoading(false);
-    }
-  }, [readContract, courseRegistry, account]);
-
   useEffect(() => {
-    fetchCourses();
-  }, [fetchCourses]);
+    let cancelled = false;
+    let attempt = 0;
+
+    async function fetchLoop() {
+      while (!cancelled) {
+        setPhase(attempt === 0 ? "loading" : "waiting");
+        setRetries(attempt);
+
+        try {
+          const count = await readContract.courseCount();
+          if (cancelled) return;
+
+          const list = [];
+          for (let i = 1; i <= Number(count); i++) {
+            const c = await readContract.courses(i);
+            if (cancelled) return;
+            list.push({
+              id: Number(c.id),
+              instructor: c.instructor,
+              ipfsHash: c.ipfsHash,
+              price: c.price,
+              active: c.active,
+            });
+          }
+          setCourses(list);
+
+          if (account && courseRegistry) {
+            const enrolled = {};
+            for (const c of list) {
+              enrolled[c.id] = await courseRegistry.isEnrolled(c.id, account);
+            }
+            if (!cancelled) setEnrolledMap(enrolled);
+          }
+
+          if (!cancelled) setPhase("ready");
+          return;
+
+        } catch (err) {
+          if (cancelled) return;
+          if (attempt < MAX_RETRIES && isRetryable(err)) {
+            attempt++;
+            await new Promise((r) => setTimeout(r, RETRY_MS));
+            continue;
+          }
+          console.error("fetchCourses:", err);
+          setError(err.message || "Failed to load courses.");
+          setPhase("error");
+          return;
+        }
+      }
+    }
+
+    fetchLoop();
+    return () => { cancelled = true; };
+  }, [readContract, courseRegistry, account, refreshKey]);
 
   async function handleEnroll(courseId) {
     if (!courseRegistry) {
@@ -78,37 +105,57 @@ export function Courses({ account, courseRegistry }) {
     try {
       const tx = await courseRegistry.enroll(courseId, { value: course.price });
       await tx.wait();
-      await fetchCourses();
+      setRefreshKey((k) => k + 1);
     } catch (err) {
       console.error("Enroll failed:", err);
       alert(err.reason || err.message);
     }
   }
 
-  if (loading) {
+  if (phase === "loading") {
     return (
       <main className="flex items-center justify-center min-h-[60vh]">
         <div className="flex flex-col items-center gap-4">
           <div className="w-10 h-10 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-          <p className="text-gray-500 text-sm">Loading courses…</p>
+          <p className="text-gray-500 text-sm">Connecting to blockchain node…</p>
         </div>
       </main>
     );
   }
 
-  if (error) {
+  if (phase === "waiting") {
+    return (
+      <main className="flex items-center justify-center min-h-[60vh]">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-10 h-10 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
+          <p className="text-gray-400 text-sm">
+            Waiting for node to finish deploying… ({retries}/{MAX_RETRIES})
+          </p>
+          <p className="text-gray-600 text-xs">
+            Make sure <code className="bg-white/5 px-1 rounded">bash start.sh</code> is running.
+          </p>
+        </div>
+      </main>
+    );
+  }
+
+  if (phase === "error") {
     return (
       <main className="flex flex-col items-center justify-center min-h-[60vh] gap-5 px-6 text-center">
         <div className="text-4xl">⚠️</div>
         <div className="max-w-md">
-          <p className="text-red-400 font-medium mb-2">{error}</p>
-          <p className="text-gray-500 text-sm mt-1">
-            Run <code className="bg-white/5 px-1 rounded text-gray-300">bash start.sh</code> from
-            the project root, then refresh.
-          </p>
+          <p className="text-red-400 font-medium mb-2">Could not connect to the blockchain node.</p>
+          <ol className="text-gray-500 text-sm text-left space-y-1 mt-3 list-decimal list-inside">
+            <li>Run <code className="bg-white/5 px-1 rounded text-gray-300">bash start.sh</code> from the project root</li>
+            <li>Wait for "Hardhat node ready" to appear in the terminal</li>
+            <li>Then refresh this page or click Retry</li>
+          </ol>
+          {error && (
+            <p className="text-gray-600 text-xs mt-3 font-mono break-all">{error}</p>
+          )}
         </div>
         <button
-          onClick={fetchCourses}
+          onClick={() => { setPhase("loading"); setRetries(0); setRefreshKey((k) => k + 1); }}
           className="bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 px-5 py-2 rounded-lg text-sm transition-colors"
         >
           Retry

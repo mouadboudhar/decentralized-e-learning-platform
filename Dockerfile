@@ -11,7 +11,7 @@ COPY scripts/ ./scripts/
 # Pre-compile so artifacts are ready when the container starts
 RUN npx hardhat compile
 
-COPY docker-entrypoint.sh ./
+COPY docker-entrypoint.sh healthcheck.js ./
 RUN chmod +x docker-entrypoint.sh
 
 EXPOSE 8545

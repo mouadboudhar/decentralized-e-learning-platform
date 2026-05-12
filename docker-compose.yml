@@ -3,6 +3,13 @@ services:
     build: .
     ports:
       - "8545:8545"
+    healthcheck:
+      # Passes only after CourseRegistry has code at its deterministic address
+      test: ["CMD", "node", "/app/healthcheck.js"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
 
   frontend:
     build:
@@ -18,4 +25,5 @@ services:
       - ./frontend/index.html:/app/index.html
       - ./frontend/vite.config.js:/app/vite.config.js
     depends_on:
-      - hardhat-node
+      hardhat-node:
+        condition: service_healthy
