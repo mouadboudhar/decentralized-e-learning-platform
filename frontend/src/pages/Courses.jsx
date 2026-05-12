@@ -29,14 +29,16 @@ export function Courses({ account, courseRegistry }) {
   const [retries, setRetries] = useState(0);
   const [refreshKey, setRefreshKey] = useState(0);
 
+  // Always read through the dev-server RPC proxy — never through the wallet's
+  // provider. MetaMask may be pointed at a different network (mainnet, etc.),
+  // where this contract address has no code and calls return "0x" → BAD_DATA.
   const readContract = useMemo(() => {
-    if (courseRegistry) return courseRegistry;
     return new ethers.Contract(
       COURSE_REGISTRY_ADDRESS,
       COURSE_REGISTRY_ABI,
       makeReadProvider()
     );
-  }, [courseRegistry]);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -65,10 +67,10 @@ export function Courses({ account, courseRegistry }) {
           }
           setCourses(list);
 
-          if (account && courseRegistry) {
+          if (account) {
             const enrolled = {};
             for (const c of list) {
-              enrolled[c.id] = await courseRegistry.isEnrolled(c.id, account);
+              enrolled[c.id] = await readContract.isEnrolled(c.id, account);
             }
             if (!cancelled) setEnrolledMap(enrolled);
           }
@@ -93,7 +95,7 @@ export function Courses({ account, courseRegistry }) {
 
     fetchLoop();
     return () => { cancelled = true; };
-  }, [readContract, courseRegistry, account, refreshKey]);
+  }, [readContract, account, refreshKey]);
 
   async function handleEnroll(courseId) {
     if (!courseRegistry) {
