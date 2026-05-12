@@ -44,6 +44,25 @@ export const CERTIFICATE_NFT_ABI = ${JSON.stringify(nftArtifact.abi, null, 2)};
   );
 
   console.log("Addresses and ABIs written to frontend/src/utils/contracts.js");
+
+  // ── Seed a few demo courses so the catalogue isn't empty on a fresh node ────
+  // The chain is in-memory: every restart wipes it, so re-seed on every deploy.
+  function metaHash(title, description) {
+    const json = JSON.stringify({ title, description });
+    return "data:application/json;base64," + Buffer.from(json).toString("base64");
+  }
+
+  const demoCourses = [
+    ["Solidity Fundamentals", "Smart-contract basics: types, storage, functions, events.", "0.01"],
+    ["Building dApp Frontends", "Wire a React UI to on-chain contracts with ethers.js and MetaMask.", "0.02"],
+    ["NFTs & Token Standards", "ERC-721/1155 deep dive, including soulbound certificates.", "0.015"],
+  ];
+
+  for (const [title, description, priceEth] of demoCourses) {
+    const tx = await courseRegistry.createCourse(metaHash(title, description), ethers.parseEther(priceEth));
+    await tx.wait();
+    console.log(`Seeded course: ${title}`);
+  }
 }
 
 main().catch((error) => {
