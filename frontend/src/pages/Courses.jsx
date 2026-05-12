@@ -28,6 +28,7 @@ export function Courses({ account, courseRegistry }) {
   const [error, setError] = useState(null);
   const [retries, setRetries] = useState(0);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [diag, setDiag] = useState(null); // { chainId, block } of the node we read
 
   // Always read through the dev-server RPC proxy — never through the wallet's
   // provider. MetaMask may be pointed at a different network (mainnet, etc.),
@@ -52,6 +53,12 @@ export function Courses({ account, courseRegistry }) {
         try {
           const count = await readContract.courseCount();
           if (cancelled) return;
+
+          try {
+            const net = await readContract.runner.getNetwork();
+            const block = await readContract.runner.getBlockNumber();
+            if (!cancelled) setDiag({ chainId: Number(net.chainId), block });
+          } catch { /* diagnostics only */ }
 
           const list = [];
           for (let i = 1; i <= Number(count); i++) {
@@ -173,8 +180,19 @@ export function Courses({ account, courseRegistry }) {
           <h2 className="text-3xl font-bold text-white">Available Courses</h2>
           <p className="text-gray-500 text-sm mt-1">
             {courses.length} course{courses.length !== 1 ? "s" : ""} on-chain
+            {diag && (
+              <span className="text-gray-600">
+                {" · "}reading node chain {diag.chainId}, block {diag.block}
+              </span>
+            )}
           </p>
         </div>
+        <button
+          onClick={() => { setPhase("loading"); setRetries(0); setRefreshKey((k) => k + 1); }}
+          className="bg-white/5 hover:bg-white/10 border border-white/10 text-gray-400 px-3 py-1.5 rounded-lg text-xs transition-colors"
+        >
+          Refresh
+        </button>
       </div>
 
       {courses.length === 0 ? (

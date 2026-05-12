@@ -2,6 +2,17 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ethers } from "ethers";
 import { uploadJSON } from "../utils/ipfs";
+import { COURSE_REGISTRY_ADDRESS, COURSE_REGISTRY_ABI } from "../utils/contracts";
+
+// Read-only handle on the SAME node the Courses page reads from (via /rpc proxy).
+function makeReadRegistry() {
+  const provider = new ethers.JsonRpcProvider(
+    `${window.location.origin}/rpc`,
+    { chainId: 31337, name: "hardhat" },
+    { staticNetwork: true }
+  );
+  return new ethers.Contract(COURSE_REGISTRY_ADDRESS, COURSE_REGISTRY_ABI, provider);
+}
 
 function Field({ label, children }) {
   return (
@@ -20,6 +31,7 @@ export function CreateCourse({ account, connect, courseRegistry }) {
   const [description, setDescription] = useState("");
   const [priceEth, setPriceEth] = useState("");
   const [creating, setCreating] = useState(false);
+  const [status, setStatus] = useState(null); // { type: "info"|"success"|"error", message }
   const navigate = useNavigate();
 
   if (!account) {
@@ -45,16 +57,57 @@ export function CreateCourse({ account, connect, courseRegistry }) {
   async function handleSubmit(e) {
     e.preventDefault();
     if (!courseRegistry) return;
+    setStatus(null);
     setCreating(true);
     try {
+      // 1. The app's blockchain node is chain 31337. If MetaMask is on anything
+      //    else, the tx goes to the wrong chain and the course never appears here.
+      const walletProvider = courseRegistry.runner?.provider;
+      const net = await walletProvider.getNetwork();
+      if (net.chainId !== 31337n) {
+        setStatus({
+          type: "error",
+          message:
+            `MetaMask is connected to chain ${net.chainId}, but this app uses chain 31337. ` +
+            `Switch MetaMask to the Hardhat network — RPC URL http://localhost:8545, Chain ID 31337 — then publish again.`,
+        });
+        return;
+      }
+
+      // 2. Snapshot the course count on the node the Courses page actually reads.
+      const readRegistry = makeReadRegistry();
+      const before = await readRegistry.courseCount();
+
+      // 3. Send the transaction through MetaMask.
       const ipfsHash = await uploadJSON({ title, description });
       const priceWei = ethers.parseEther(priceEth);
       const tx = await courseRegistry.createCourse(ipfsHash, priceWei);
-      await tx.wait();
-      navigate("/courses");
+      setStatus({ type: "info", message: `Transaction sent (${tx.hash.slice(0, 12)}…). Waiting for confirmation…` });
+      const receipt = await tx.wait();
+
+      // 4. Verify it landed on *this* node — not some other one MetaMask points at.
+      const after = await readRegistry.courseCount();
+      if (after > before) {
+        setStatus({ type: "success", message: `Course #${after} published. Opening the catalogue…` });
+        setTimeout(() => navigate("/courses"), 900);
+      } else {
+        setStatus({
+          type: "error",
+          message:
+            `Your transaction was mined (block ${receipt.blockNumber}) but the course count on this app's node ` +
+            `didn't change — it's still ${before}. That means MetaMask sent it to a different node than the one this app reads from. ` +
+            `In MetaMask, delete any old "Localhost 8545" network and use exactly: RPC URL http://localhost:8545, Chain ID 31337.`,
+        });
+      }
     } catch (err) {
       console.error(err);
-      alert("Transaction failed: " + (err.reason || err.message));
+      let msg = err.reason || err.shortMessage || err.message || String(err);
+      if (/nonce/i.test(msg)) {
+        msg += "  —  The blockchain node was probably restarted. In MetaMask: Settings → Advanced → Clear activity tab data (reset account), then retry.";
+      } else if (/insufficient funds/i.test(msg)) {
+        msg += "  —  This account has no ETH on the Hardhat node. Import one of the test accounts Hardhat prints on startup (they each have 10000 ETH).";
+      }
+      setStatus({ type: "error", message: msg });
     } finally {
       setCreating(false);
     }
@@ -108,6 +161,20 @@ export function CreateCourse({ account, connect, courseRegistry }) {
             className={inputClass}
           />
         </Field>
+
+        {status && (
+          <div
+            className={`rounded-xl px-4 py-3 text-sm border break-words ${
+              status.type === "error"
+                ? "bg-red-500/10 border-red-500/30 text-red-300"
+                : status.type === "success"
+                ? "bg-green-500/10 border-green-500/30 text-green-300"
+                : "bg-indigo-500/10 border-indigo-500/30 text-indigo-200"
+            }`}
+          >
+            {status.message}
+          </div>
+        )}
 
         <div className="pt-2">
           <button
