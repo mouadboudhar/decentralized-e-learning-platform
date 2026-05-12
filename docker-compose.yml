@@ -3,3 +3,17 @@ services:
     build: .
     ports:
       - "8545:8545"
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "5173:5173"
+    volumes:
+      # Mount source so edits reflect instantly without rebuilding the image
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+      - ./frontend/index.html:/app/index.html
+      - ./frontend/vite.config.js:/app/vite.config.js
+    depends_on:
+      - hardhat-node

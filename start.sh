@@ -2,20 +2,20 @@
 set -e
 cd "$(dirname "$0")"
 
-# ── Docker path (preferred — solves WSL2 → Windows MetaMask networking) ──────
+# ── Docker path (preferred) ───────────────────────────────────────────────────
 if command -v docker &>/dev/null && docker info &>/dev/null 2>&1; then
-  echo "Starting Hardhat node via Docker..."
-  echo "MetaMask RPC URL: http://localhost:8545  |  Chain ID: 31337"
   echo ""
-  # --build rebuilds only when Dockerfile/contracts change (cached otherwise)
+  echo "Starting LearnChain via Docker..."
+  echo ""
+  echo "  Frontend  →  http://localhost:5173"
+  echo "  RPC node  →  http://localhost:8545  (MetaMask: chain 31337)"
+  echo ""
   docker compose up --build
   exit 0
 fi
 
-# ── Fallback: native Hardhat (no Docker) ─────────────────────────────────────
+# ── Fallback: native (no Docker) ─────────────────────────────────────────────
 echo "Docker not found — using native Hardhat."
-echo "NOTE: if MetaMask can't reach the node, install Docker Desktop."
-echo ""
 
 if lsof -ti:8545 &>/dev/null; then
   echo "Stopping existing node on :8545..."
@@ -34,10 +34,9 @@ done
 npx hardhat run scripts/deploy.js --network localhost
 
 echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  MetaMask RPC URL : http://localhost:8545"
-echo "  Chain ID         : 31337"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  RPC node  →  http://localhost:8545  (MetaMask: chain 31337)"
+echo ""
+echo "  Run in a second terminal: cd frontend && npm run dev"
 echo ""
 echo "Press Ctrl+C to stop."
 
