@@ -9,6 +9,8 @@ services:
       context: ./frontend
     ports:
       - "5173:5173"
+    environment:
+      - VITE_RPC_PROXY_TARGET=http://hardhat-node:8545
     volumes:
       # Mount source so edits reflect instantly without rebuilding the image
       - ./frontend/src:/app/src

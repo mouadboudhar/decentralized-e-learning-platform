@@ -3,26 +3,15 @@ import { ethers } from "ethers";
 import { CourseCard } from "../components/CourseCard";
 import { COURSE_REGISTRY_ADDRESS, COURSE_REGISTRY_ABI } from "../utils/contracts";
 
-const HARDHAT_CHAIN_ID = 31337;
-
-async function getReadContract(courseRegistry) {
-  // If already have a signer-based contract, use it directly
-  if (courseRegistry) return courseRegistry;
-
-  // MetaMask makes the actual HTTP call to the node — no CORS issue
-  if (!window.ethereum) return null;
-
-  const provider = new ethers.BrowserProvider(window.ethereum);
-
-  // Verify MetaMask is on the Hardhat local network
-  const network = await provider.getNetwork();
-  if (Number(network.chainId) !== HARDHAT_CHAIN_ID) {
-    throw new Error(
-      `MetaMask is on chain ${network.chainId}. Switch to the Hardhat local network (chain 31337 / localhost:8545).`
-    );
-  }
-
-  return new ethers.Contract(COURSE_REGISTRY_ADDRESS, COURSE_REGISTRY_ABI, provider);
+// Reads go through the Vite dev-server proxy (/rpc → hardhat-node:8545).
+// This is server-side forwarding — zero CORS involvement, no MetaMask required,
+// works identically in Docker and native WSL2.
+function makeReadProvider() {
+  return new ethers.JsonRpcProvider(
+    `${window.location.origin}/rpc`,
+    { chainId: 31337, name: "hardhat" },
+    { staticNetwork: true }  // skip background eth_chainId polling
+  );
 }
 
 export function Courses({ account, courseRegistry }) {
@@ -31,24 +20,25 @@ export function Courses({ account, courseRegistry }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  // If the user is connected, use their signer contract (covers writes too);
+  // otherwise fall back to a read-only provider through the proxy.
+  const readContract = useMemo(() => {
+    if (courseRegistry) return courseRegistry;
+    return new ethers.Contract(
+      COURSE_REGISTRY_ADDRESS,
+      COURSE_REGISTRY_ABI,
+      makeReadProvider()
+    );
+  }, [courseRegistry]);
+
   const fetchCourses = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const contract = await getReadContract(courseRegistry);
-
-      if (!contract) {
-        // MetaMask not installed — still show the page, just can't read chain
-        if (!window.ethereum) {
-          setError("Install MetaMask to browse courses.");
-        }
-        return;
-      }
-
-      const count = await contract.courseCount();
+      const count = await readContract.courseCount();
       const list = [];
       for (let i = 1; i <= Number(count); i++) {
-        const c = await contract.courses(i);
+        const c = await readContract.courses(i);
         list.push({
           id: Number(c.id),
           instructor: c.instructor,
@@ -72,7 +62,7 @@ export function Courses({ account, courseRegistry }) {
     } finally {
       setLoading(false);
     }
-  }, [courseRegistry, account]);
+  }, [readContract, courseRegistry, account]);
 
   useEffect(() => {
     fetchCourses();
@@ -112,18 +102,10 @@ export function Courses({ account, courseRegistry }) {
         <div className="text-4xl">⚠️</div>
         <div className="max-w-md">
           <p className="text-red-400 font-medium mb-2">{error}</p>
-          {error.includes("chain") || error.includes("MetaMask") ? (
-            <ol className="text-gray-500 text-sm text-left space-y-1 mt-3 list-decimal list-inside">
-              <li>Open MetaMask → Networks → Add a network</li>
-              <li>Network name: Hardhat, RPC: http://127.0.0.1:8545, Chain ID: 31337</li>
-              <li>Switch to that network and refresh</li>
-            </ol>
-          ) : (
-            <p className="text-gray-500 text-sm mt-1">
-              Run <code className="bg-white/5 px-1 rounded text-gray-300">bash start.sh</code> from
-              the project root, then refresh.
-            </p>
-          )}
+          <p className="text-gray-500 text-sm mt-1">
+            Run <code className="bg-white/5 px-1 rounded text-gray-300">bash start.sh</code> from
+            the project root, then refresh.
+          </p>
         </div>
         <button
           onClick={fetchCourses}
