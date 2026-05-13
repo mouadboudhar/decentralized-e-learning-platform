@@ -4,8 +4,10 @@ import { useContract } from "./hooks/useContract";
 import { Navbar } from "./components/Navbar";
 import { Home } from "./pages/Home";
 import { Courses } from "./pages/Courses";
+import { CourseDetail } from "./pages/CourseDetail";
 import { CreateCourse } from "./pages/CreateCourse";
 import { MyCertificates } from "./pages/MyCertificates";
+import { Account } from "./pages/Account";
 
 export default function App() {
   const { account, signer, connect, disconnect } = useWallet();
@@ -21,6 +23,16 @@ export default function App() {
           element={<Courses account={account} courseRegistry={courseRegistry} />}
         />
         <Route
+          path="/courses/:courseId"
+          element={
+            <CourseDetail
+              account={account}
+              courseRegistry={courseRegistry}
+              connect={connect}
+            />
+          }
+        />
+        <Route
           path="/create"
           element={
             <CreateCourse account={account} connect={connect} courseRegistry={courseRegistry} />
@@ -29,6 +41,17 @@ export default function App() {
         <Route
           path="/certificates"
           element={<MyCertificates account={account} certificateNFT={certificateNFT} />}
+        />
+        <Route
+          path="/account"
+          element={
+            <Account
+              account={account}
+              connect={connect}
+              courseRegistry={courseRegistry}
+              certificateNFT={certificateNFT}
+            />
+          }
         />
       </Routes>
     </BrowserRouter>
