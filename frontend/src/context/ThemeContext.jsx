@@ -11,12 +11,17 @@ function readInitialTheme() {
   return "dark";
 }
 
+function applyTheme(theme) {
+  const root = document.documentElement;
+  root.setAttribute("data-theme", theme);
+  root.style.colorScheme = theme;
+}
+
 export function ThemeProvider({ children }) {
   const [theme, setTheme] = useState(readInitialTheme);
 
   useEffect(() => {
-    const root = document.documentElement;
-    root.setAttribute("data-theme", theme);
+    applyTheme(theme);
     window.localStorage.setItem(STORAGE_KEY, theme);
   }, [theme]);
 
