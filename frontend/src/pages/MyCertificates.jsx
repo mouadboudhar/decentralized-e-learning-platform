@@ -1,12 +1,42 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
+import { ethers } from "ethers";
+import { Link } from "react-router-dom";
 import { ipfsToHttp } from "../utils/ipfs";
+import {
+  CERTIFICATE_NFT_ADDRESS,
+  COURSE_REGISTRY_ADDRESS,
+  COURSE_REGISTRY_ABI,
+} from "../utils/contracts";
+
+function makeReadRegistry() {
+  const provider = new ethers.JsonRpcProvider(
+    `${window.location.origin}/rpc`,
+    { chainId: 31337, name: "hardhat" },
+    { staticNetwork: true }
+  );
+  return new ethers.Contract(COURSE_REGISTRY_ADDRESS, COURSE_REGISTRY_ABI, provider);
+}
+
+async function fetchCourseTitle(ipfsHash, fallback) {
+  try {
+    const res = await fetch(ipfsToHttp(ipfsHash));
+    if (!res.ok) return fallback;
+    const data = await res.json();
+    return typeof data.title === "string" ? data.title : fallback;
+  } catch {
+    return fallback;
+  }
+}
 
 export function MyCertificates({ account, certificateNFT }) {
   const [certificates, setCertificates] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  const readRegistry = useMemo(() => makeReadRegistry(), []);
+
   useEffect(() => {
-    async function fetchCertificates() {
+    let cancelled = false;
+    async function load() {
       if (!certificateNFT || !account) {
         setLoading(false);
         return;
@@ -18,34 +48,44 @@ export function MyCertificates({ account, certificateNFT }) {
           events.map(async (evt) => {
             const tokenId = evt.args[0];
             const cert = await certificateNFT.certificates(tokenId);
+            const courseId = Number(cert.courseId);
+            let title = `Course #${courseId}`;
+            try {
+              const course = await readRegistry.courses(courseId);
+              title = await fetchCourseTitle(course.ipfsHash, title);
+            } catch {
+              // course lookup failed, keep fallback
+            }
             return {
               tokenId: Number(tokenId),
-              courseId: Number(cert.courseId),
+              courseId,
               issuedAt: Number(cert.issuedAt),
               ipfsHash: cert.ipfsHash,
+              title,
             };
           })
         );
-        setCertificates(certs);
+        if (!cancelled) setCertificates(certs);
       } catch (err) {
         console.error("Failed to load certificates:", err);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
-    fetchCertificates();
-  }, [certificateNFT, account]);
+    load();
+    return () => { cancelled = true; };
+  }, [certificateNFT, account, readRegistry]);
 
   if (!account) {
     return (
-      <main className="flex flex-col items-center justify-center min-h-[70vh] gap-5 px-6 text-center">
-        <div className="w-16 h-16 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-3xl">
-          🏆
-        </div>
-        <div>
-          <p className="text-white font-semibold text-lg mb-1">Wallet not connected</p>
-          <p className="text-gray-400 text-sm">Connect your wallet to view your certificates.</p>
-        </div>
+      <main className="max-w-xl mx-auto px-6 py-24 text-center">
+        <p className="eyebrow mb-3">Restricted</p>
+        <h1 className="font-display font-semibold text-3xl mb-3" style={{ color: "var(--text)" }}>
+          Connect your wallet.
+        </h1>
+        <p className="text-sm" style={{ color: "var(--muted)" }}>
+          Your certificates are tied to your wallet address.
+        </p>
       </main>
     );
   }
@@ -53,74 +93,95 @@ export function MyCertificates({ account, certificateNFT }) {
   if (loading) {
     return (
       <main className="flex items-center justify-center min-h-[60vh]">
-        <div className="w-10 h-10 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+        <div className="w-8 h-8 animate-spin" style={{ border: "2px solid var(--border)", borderTopColor: "var(--accent)" }} />
       </main>
     );
   }
 
   return (
-    <main className="max-w-4xl mx-auto px-6 py-12">
-      <div className="mb-8">
-        <h2 className="text-3xl font-bold text-white">My Certificates</h2>
-        <p className="text-gray-500 text-sm mt-1">
-          Soulbound NFTs issued to your wallet upon course completion
+    <main className="max-w-[1440px] mx-auto px-6 py-12">
+      <header className="mb-10" style={{ borderBottom: "1px solid var(--border)", paddingBottom: "1.5rem" }}>
+        <p className="eyebrow mb-2">— Credentials / Soulbound</p>
+        <h1 className="font-display font-bold tracking-[-0.02em]" style={{ fontSize: "clamp(2rem, 5vw, 3.5rem)", color: "var(--text)" }}>
+          My Certificates
+        </h1>
+        <p className="text-sm mt-2" style={{ color: "var(--muted)" }}>
+          ERC-721 certificates minted to <span className="font-mono">{account.slice(0,6)}…{account.slice(-4)}</span>
         </p>
-      </div>
+      </header>
 
       {certificates.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-24 gap-4 text-center">
-          <div className="text-5xl">🎓</div>
-          <p className="text-white font-medium">No certificates yet</p>
-          <p className="text-gray-500 text-sm">
-            Complete a course and ask the instructor to issue your certificate.
+        <div className="py-24 text-center">
+          <p className="eyebrow mb-2">Empty</p>
+          <p className="font-display text-2xl mb-3" style={{ color: "var(--text)" }}>
+            You have not completed any courses yet.
           </p>
+          <Link to="/courses" className="btn btn-primary">
+            Browse courses →
+          </Link>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-          {certificates.map((cert) => (
-            <div
-              key={cert.tokenId}
-              className="relative rounded-2xl overflow-hidden border border-white/5 bg-gradient-to-br from-indigo-900/20 via-purple-900/10 to-transparent"
-            >
-              {/* Gradient top bar */}
-              <div className="h-0.5 bg-gradient-to-r from-indigo-500 via-purple-400 to-pink-500" />
-
-              <div className="p-6 flex flex-col gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-px" style={{ background: "var(--border)" }}>
+          {certificates.map((cert) => {
+            const verifyUrl = `https://sepolia.etherscan.io/token/${CERTIFICATE_NFT_ADDRESS}?a=${account}`;
+            const dateStr = new Date(cert.issuedAt * 1000).toLocaleDateString("en-US", {
+              year: "numeric",
+              month: "long",
+              day: "numeric",
+            });
+            return (
+              <article key={cert.tokenId} className="p-8 flex flex-col gap-6" style={{ background: "var(--bg)" }}>
                 <div className="flex items-start justify-between">
+                  <p className="eyebrow">Certificate of Completion</p>
+                  <span
+                    className="font-mono text-xs px-2 py-1"
+                    style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--muted)" }}
+                  >
+                    № {String(cert.tokenId).padStart(4, "0")}
+                  </span>
+                </div>
+
+                <h2 className="font-display font-bold leading-tight" style={{ fontSize: "1.85rem", color: "var(--text)" }}>
+                  {cert.title}
+                </h2>
+
+                <div className="grid grid-cols-2 gap-6">
                   <div>
-                    <p className="text-xs text-gray-500 mb-1 uppercase tracking-widest">Certificate</p>
-                    <h3 className="text-white font-semibold text-lg">Course #{cert.courseId}</h3>
+                    <p className="eyebrow mb-1">Issued to</p>
+                    <p className="font-mono text-sm break-all" style={{ color: "var(--text)" }}>
+                      {account.slice(0, 10)}…{account.slice(-8)}
+                    </p>
                   </div>
-                  <span className="text-xs font-mono text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 rounded-full">
-                    Token #{cert.tokenId}
-                  </span>
+                  <div>
+                    <p className="eyebrow mb-1">Date</p>
+                    <p className="font-mono text-sm" style={{ color: "var(--text)" }}>{dateStr}</p>
+                  </div>
+                  <div>
+                    <p className="eyebrow mb-1">Course ID</p>
+                    <p className="font-mono text-sm" style={{ color: "var(--text)" }}>#{cert.courseId}</p>
+                  </div>
+                  <div>
+                    <p className="eyebrow mb-1">Token ID</p>
+                    <p className="font-mono text-sm" style={{ color: "var(--text)" }}>{cert.tokenId}</p>
+                  </div>
                 </div>
 
-                <div className="text-sm text-gray-400">
-                  Issued{" "}
-                  <span className="text-gray-300">
-                    {new Date(cert.issuedAt * 1000).toLocaleDateString("en-US", {
-                      year: "numeric",
-                      month: "long",
-                      day: "numeric",
-                    })}
-                  </span>
+                <div className="flex gap-3 pt-2" style={{ borderTop: "1px solid var(--border)" }}>
+                  <a
+                    href={verifyUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-outline btn-sm mt-3"
+                  >
+                    Verify on-chain →
+                  </a>
+                  <Link to={`/courses/${cert.courseId}`} className="btn btn-ghost btn-sm mt-3">
+                    View course →
+                  </Link>
                 </div>
-
-                <a
-                  href={ipfsToHttp(cert.ipfsHash)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 text-indigo-400 hover:text-indigo-300 text-sm transition-colors"
-                >
-                  View on IPFS
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                  </svg>
-                </a>
-              </div>
-            </div>
-          ))}
+              </article>
+            );
+          })}
         </div>
       )}
     </main>

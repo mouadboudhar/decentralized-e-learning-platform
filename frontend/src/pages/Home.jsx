@@ -2,106 +2,175 @@ import { Link } from "react-router-dom";
 
 const features = [
   {
-    icon: "⛓",
+    n: "01",
     title: "On-chain enrollment",
-    body: "Pay directly in ETH. No payment processor, no chargebacks — just a smart contract.",
+    body: "Pay directly in ETH. No payment processor, no chargebacks. Just a smart contract.",
   },
   {
-    icon: "🎓",
+    n: "02",
     title: "Soulbound certificates",
-    body: "Certificates are ERC-721 NFTs tied permanently to your wallet. Non-transferable, unforgeable.",
+    body: "ERC-721 NFTs tied to your wallet. Non-transferable. Unforgeable. Yours.",
   },
   {
-    icon: "🔓",
+    n: "03",
     title: "No middleman",
-    body: "Instructors receive payments directly. No platform fee. No account bans. No censorship.",
+    body: "Instructors get paid directly. No platform fee. No account bans. No censorship.",
   },
 ];
 
 const steps = [
-  { n: "01", title: "Browse & enroll", body: "Find a course, send ETH directly to the contract." },
-  { n: "02", title: "Complete the course", body: "Instructor marks you complete once you finish." },
-  { n: "03", title: "Claim your certificate", body: "An NFT certificate is minted to your wallet — yours forever." },
+  { n: "01", title: "Browse and enroll", body: "Find a course. Send ETH directly to the contract." },
+  { n: "02", title: "Complete the course", body: "Work through every section and lesson at your own pace." },
+  { n: "03", title: "Claim your credential", body: "A soulbound certificate is minted to your wallet." },
 ];
 
 export function Home() {
   return (
-    <div className="relative overflow-hidden">
-      {/* Background glow orbs */}
-      <div className="pointer-events-none absolute -top-40 left-1/2 -translate-x-1/2 w-[800px] h-[600px] rounded-full bg-indigo-600/10 blur-[120px]" />
-      <div className="pointer-events-none absolute top-60 -left-40 w-[400px] h-[400px] rounded-full bg-purple-600/8 blur-[100px]" />
+    <div style={{ background: "var(--bg)" }}>
+      {/* Ticker bar */}
+      <div
+        className="ticker-bar font-mono text-xs uppercase tracking-[0.2em] py-2 px-6 flex justify-between items-center"
+        style={{ color: "var(--muted)" }}
+      >
+        <span>ETH / Sepolia · Live</span>
+        <span className="hidden md:inline">Edition Vol. 01</span>
+        <span style={{ color: "var(--accent)" }}>EST. 2026</span>
+      </div>
 
-      {/* Hero */}
-      <section className="relative max-w-5xl mx-auto px-6 pt-24 pb-20 text-center">
-        <div className="inline-flex items-center gap-2 bg-indigo-500/10 border border-indigo-500/20 rounded-full px-4 py-1.5 text-sm text-indigo-300 mb-8">
-          <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
-          Running on Ethereum · Powered by IPFS
-        </div>
+      {/* Hero — magazine style with rule lines */}
+      <section
+        className="max-w-[1440px] mx-auto px-6 py-20"
+        style={{ borderBottom: "1px solid var(--border)" }}
+      >
+        <p className="eyebrow mb-8">— Issue No. 01 / Decentralized Learning</p>
 
-        <h1 className="text-5xl md:text-7xl font-bold tracking-tight mb-6 leading-[1.08]">
-          Learn.{" "}
-          <span className="bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">
-            Earn.
-          </span>
-          <br />
-          Own Your Credentials.
+        <h1
+          className="font-display font-bold leading-[0.92] tracking-[-0.03em] mb-10"
+          style={{
+            fontSize: "clamp(3.5rem, 9vw, 8rem)",
+            color: "var(--text)",
+          }}
+        >
+          Learn.<br />
+          Earn.<br />
+          <span style={{ color: "var(--accent)" }}>Own it.</span>
         </h1>
 
-        <p className="text-gray-400 text-lg md:text-xl max-w-2xl mx-auto mb-10 leading-relaxed">
-          A decentralized e-learning platform where instructors publish courses, students pay
-          directly in ETH, and certificates are minted as soulbound NFTs — no middleman, no
-          censorship.
-        </p>
+        <div className="grid grid-cols-12 gap-6 items-end">
+          <p
+            className="col-span-12 md:col-span-7 text-lg md:text-xl leading-relaxed max-w-2xl"
+            style={{ color: "var(--muted)" }}
+          >
+            A decentralized e-learning platform where instructors publish on-chain courses,
+            students pay directly in ETH, and credentials are minted as soulbound NFTs.
+            No intermediary. No revocation. No noise.
+          </p>
 
-        <div className="flex flex-wrap items-center justify-center gap-3">
-          <Link
-            to="/courses"
-            className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white px-8 py-3 rounded-xl text-base font-medium transition-all shadow-lg shadow-indigo-500/25 hover:shadow-indigo-500/40"
-          >
-            Browse Courses
-          </Link>
-          <Link
-            to="/create"
-            className="bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 hover:text-white px-8 py-3 rounded-xl text-base font-medium transition-all"
-          >
-            Become an Instructor
-          </Link>
+          <div className="col-span-12 md:col-span-5 flex flex-wrap gap-3 md:justify-end">
+            <Link to="/courses" className="btn btn-primary btn-lg">
+              Browse Courses →
+            </Link>
+            <Link to="/create" className="btn btn-outline btn-lg">
+              Teach
+            </Link>
+          </div>
         </div>
       </section>
 
+      {/* Index strip — data row, Bloomberg style */}
+      <section
+        className="max-w-[1440px] mx-auto px-6 py-6 grid grid-cols-2 md:grid-cols-4 gap-6"
+        style={{ borderBottom: "1px solid var(--border)" }}
+      >
+        {[
+          { label: "Network", value: "Ethereum" },
+          { label: "Standard", value: "ERC-721" },
+          { label: "Storage", value: "On-chain" },
+          { label: "Fees", value: "0%" },
+        ].map(({ label, value }) => (
+          <div key={label}>
+            <p className="eyebrow mb-1">{label}</p>
+            <p className="font-mono text-base" style={{ color: "var(--text)" }}>{value}</p>
+          </div>
+        ))}
+      </section>
+
       {/* Features */}
-      <section className="max-w-5xl mx-auto px-6 pb-20">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {features.map(({ icon, title, body }) => (
+      <section className="max-w-[1440px] mx-auto px-6 py-20">
+        <div className="flex items-baseline justify-between mb-12">
+          <h2
+            className="font-display font-semibold"
+            style={{ fontSize: "clamp(1.75rem, 4vw, 3rem)", color: "var(--text)" }}
+          >
+            What you get
+          </h2>
+          <span className="eyebrow hidden md:inline">Section 02</span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3" style={{ borderTop: "1px solid var(--border)" }}>
+          {features.map(({ n, title, body }, i) => (
             <div
-              key={title}
-              className="relative rounded-2xl border border-white/5 bg-gradient-to-br from-white/[0.04] to-white/[0.01] p-6 hover:border-indigo-500/20 transition-colors group"
+              key={n}
+              className="p-8"
+              style={{
+                borderBottom: "1px solid var(--border)",
+                borderRight: i < 2 ? "1px solid var(--border)" : "none",
+              }}
             >
-              <div className="text-3xl mb-4">{icon}</div>
-              <h3 className="text-white font-semibold mb-2">{title}</h3>
-              <p className="text-gray-400 text-sm leading-relaxed">{body}</p>
+              <p className="font-mono text-xs mb-6" style={{ color: "var(--accent)" }}>{n}</p>
+              <h3
+                className="font-display font-semibold text-xl mb-3"
+                style={{ color: "var(--text)" }}
+              >
+                {title}
+              </h3>
+              <p className="text-sm leading-relaxed" style={{ color: "var(--muted)" }}>{body}</p>
             </div>
           ))}
         </div>
       </section>
 
       {/* How it works */}
-      <section className="border-t border-white/5 py-20">
-        <div className="max-w-5xl mx-auto px-6">
-          <h2 className="text-2xl font-bold text-white text-center mb-12">How it works</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {steps.map(({ n, title, body }) => (
-              <div key={n} className="flex flex-col items-start gap-3">
-                <span className="text-4xl font-bold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
-                  {n}
-                </span>
-                <h3 className="text-white font-semibold">{title}</h3>
-                <p className="text-gray-400 text-sm leading-relaxed">{body}</p>
-              </div>
-            ))}
-          </div>
+      <section
+        className="max-w-[1440px] mx-auto px-6 py-20"
+        style={{ borderTop: "1px solid var(--border)" }}
+      >
+        <div className="flex items-baseline justify-between mb-12">
+          <h2
+            className="font-display font-semibold"
+            style={{ fontSize: "clamp(1.75rem, 4vw, 3rem)", color: "var(--text)" }}
+          >
+            How it works
+          </h2>
+          <span className="eyebrow hidden md:inline">Section 03</span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-px" style={{ background: "var(--border)" }}>
+          {steps.map(({ n, title, body }) => (
+            <div key={n} className="p-8" style={{ background: "var(--bg)" }}>
+              <p
+                className="font-display font-bold mb-6"
+                style={{ fontSize: "3.5rem", color: "var(--accent)", lineHeight: 1 }}
+              >
+                {n}
+              </p>
+              <h3 className="font-display font-semibold text-lg mb-2" style={{ color: "var(--text)" }}>{title}</h3>
+              <p className="text-sm leading-relaxed" style={{ color: "var(--muted)" }}>{body}</p>
+            </div>
+          ))}
         </div>
       </section>
+
+      <footer
+        className="max-w-[1440px] mx-auto px-6 py-10 flex flex-wrap items-center justify-between gap-4 font-mono text-xs uppercase tracking-[0.18em]"
+        style={{
+          borderTop: "1px solid var(--border)",
+          color: "var(--muted)",
+        }}
+      >
+        <span>LearnChain Editorial</span>
+        <span>© 2026 — Open Protocol</span>
+      </footer>
     </div>
   );
 }

@@ -1,10 +1,9 @@
 import { useState, useEffect, useMemo } from "react";
 import { ethers } from "ethers";
 import { CourseCard } from "../components/CourseCard";
+import { ipfsToHttp } from "../utils/ipfs";
 import { COURSE_REGISTRY_ADDRESS, COURSE_REGISTRY_ABI } from "../utils/contracts";
 
-// Reads go through the Vite dev-server proxy (/rpc → hardhat-node:8545).
-// Server-side forwarding: zero CORS, no MetaMask needed, works in Docker and WSL2.
 function makeReadProvider() {
   return new ethers.JsonRpcProvider(
     `${window.location.origin}/rpc`,
@@ -13,26 +12,34 @@ function makeReadProvider() {
   );
 }
 
-// Retry on transient errors: node not yet ready or contract not yet deployed
 function isRetryable(err) {
   return ['BAD_DATA', 'NETWORK_ERROR', 'SERVER_ERROR', 'UNKNOWN_ERROR'].includes(err?.code);
 }
 
-const MAX_RETRIES = 15; // ~30 seconds
+const MAX_RETRIES = 15;
 const RETRY_MS = 2000;
 
-export function Courses({ account, courseRegistry }) {
+export function Courses({ account }) {
   const [courses, setCourses] = useState([]);
+  const [titles, setTitles] = useState({}); // courseId -> string
   const [enrolledMap, setEnrolledMap] = useState({});
-  const [phase, setPhase] = useState("loading"); // loading | waiting | ready | error
+  const [phase, setPhase] = useState("loading");
   const [error, setError] = useState(null);
   const [retries, setRetries] = useState(0);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [diag, setDiag] = useState(null); // { chainId, block } of the node we read
+  const [diag, setDiag] = useState(null);
 
-  // Always read through the dev-server RPC proxy — never through the wallet's
-  // provider. MetaMask may be pointed at a different network (mainnet, etc.),
-  // where this contract address has no code and calls return "0x" → BAD_DATA.
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState("all"); // all | free | paid
+  const [sort, setSort] = useState("newest"); // newest | oldest | price-asc | price-desc
+
+  // Debounce search input by 300ms
+  useEffect(() => {
+    const id = setTimeout(() => setSearch(searchInput.trim().toLowerCase()), 300);
+    return () => clearTimeout(id);
+  }, [searchInput]);
+
   const readContract = useMemo(() => {
     return new ethers.Contract(
       COURSE_REGISTRY_ADDRESS,
@@ -74,6 +81,22 @@ export function Courses({ account, courseRegistry }) {
           }
           setCourses(list);
 
+          // Resolve titles in parallel (best-effort)
+          Promise.all(
+            list.map(async (c) => {
+              try {
+                const res = await fetch(ipfsToHttp(c.ipfsHash));
+                if (!res.ok) return [c.id, `Course #${c.id}`];
+                const data = await res.json();
+                return [c.id, typeof data.title === "string" ? data.title : `Course #${c.id}`];
+              } catch {
+                return [c.id, `Course #${c.id}`];
+              }
+            })
+          ).then((entries) => {
+            if (!cancelled) setTitles(Object.fromEntries(entries));
+          });
+
           if (account) {
             const enrolled = {};
             for (const c of list) {
@@ -84,7 +107,6 @@ export function Courses({ account, courseRegistry }) {
 
           if (!cancelled) setPhase("ready");
           return;
-
         } catch (err) {
           if (cancelled) return;
           if (attempt < MAX_RETRIES && isRetryable(err)) {
@@ -104,44 +126,49 @@ export function Courses({ account, courseRegistry }) {
     return () => { cancelled = true; };
   }, [readContract, account, refreshKey]);
 
-  async function handleEnroll(courseId) {
-    if (!courseRegistry) {
-      alert("Connect your wallet to enroll.");
-      return;
+  const filtered = useMemo(() => {
+    let out = [...courses];
+    if (search) {
+      out = out.filter((c) => {
+        const t = (titles[c.id] || `Course #${c.id}`).toLowerCase();
+        return t.includes(search);
+      });
     }
-    const course = courses.find((c) => c.id === courseId);
-    if (!course) return;
-    try {
-      const tx = await courseRegistry.enroll(courseId, { value: course.price });
-      await tx.wait();
-      setRefreshKey((k) => k + 1);
-    } catch (err) {
-      console.error("Enroll failed:", err);
-      alert(err.reason || err.message);
-    }
-  }
+    if (filter === "free") out = out.filter((c) => c.price === 0n);
+    if (filter === "paid") out = out.filter((c) => c.price > 0n);
 
-  if (phase === "loading") {
+    switch (sort) {
+      case "oldest":
+        out.sort((a, b) => a.id - b.id);
+        break;
+      case "price-asc":
+        out.sort((a, b) => (a.price < b.price ? -1 : a.price > b.price ? 1 : 0));
+        break;
+      case "price-desc":
+        out.sort((a, b) => (a.price < b.price ? 1 : a.price > b.price ? -1 : 0));
+        break;
+      case "newest":
+      default:
+        out.sort((a, b) => b.id - a.id);
+    }
+    return out;
+  }, [courses, titles, search, filter, sort]);
+
+  if (phase === "loading" || phase === "waiting") {
     return (
       <main className="flex items-center justify-center min-h-[60vh]">
         <div className="flex flex-col items-center gap-4">
-          <div className="w-10 h-10 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-          <p className="text-gray-500 text-sm">Connecting to blockchain node…</p>
-        </div>
-      </main>
-    );
-  }
-
-  if (phase === "waiting") {
-    return (
-      <main className="flex items-center justify-center min-h-[60vh]">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-10 h-10 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
-          <p className="text-gray-400 text-sm">
-            Waiting for node to finish deploying… ({retries}/{MAX_RETRIES})
-          </p>
-          <p className="text-gray-600 text-xs">
-            Make sure <code className="bg-white/5 px-1 rounded">bash start.sh</code> is running.
+          <div
+            className="w-8 h-8 animate-spin"
+            style={{
+              border: "2px solid var(--border)",
+              borderTopColor: "var(--accent)",
+            }}
+          />
+          <p className="font-mono text-xs uppercase tracking-[0.18em]" style={{ color: "var(--muted)" }}>
+            {phase === "loading"
+              ? "Connecting to node…"
+              : `Waiting for deployment (${retries}/${MAX_RETRIES})`}
           </p>
         </div>
       </main>
@@ -150,22 +177,22 @@ export function Courses({ account, courseRegistry }) {
 
   if (phase === "error") {
     return (
-      <main className="flex flex-col items-center justify-center min-h-[60vh] gap-5 px-6 text-center">
-        <div className="text-4xl">⚠️</div>
-        <div className="max-w-md">
-          <p className="text-red-400 font-medium mb-2">Could not connect to the blockchain node.</p>
-          <ol className="text-gray-500 text-sm text-left space-y-1 mt-3 list-decimal list-inside">
-            <li>Run <code className="bg-white/5 px-1 rounded text-gray-300">bash start.sh</code> from the project root</li>
-            <li>Wait for "Hardhat node ready" to appear in the terminal</li>
-            <li>Then refresh this page or click Retry</li>
-          </ol>
-          {error && (
-            <p className="text-gray-600 text-xs mt-3 font-mono break-all">{error}</p>
-          )}
-        </div>
+      <main className="max-w-2xl mx-auto px-6 py-20 text-center">
+        <p className="eyebrow mb-4" style={{ color: "var(--danger)" }}>Error</p>
+        <h2 className="font-display text-2xl font-semibold mb-4" style={{ color: "var(--text)" }}>
+          Could not connect to the blockchain node.
+        </h2>
+        <ol className="text-sm text-left space-y-2 mt-6" style={{ color: "var(--muted)" }}>
+          <li>1. Run <code className="font-mono px-1" style={{ background: "var(--surface)", color: "var(--text)" }}>bash start.sh</code> from the project root.</li>
+          <li>2. Wait for "Hardhat node ready" in the terminal.</li>
+          <li>3. Refresh this page or click Retry below.</li>
+        </ol>
+        {error && (
+          <p className="font-mono text-xs mt-4 break-all" style={{ color: "var(--muted-2)" }}>{error}</p>
+        )}
         <button
           onClick={() => { setPhase("loading"); setRetries(0); setRefreshKey((k) => k + 1); }}
-          className="bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 px-5 py-2 rounded-lg text-sm transition-colors"
+          className="btn btn-primary mt-6"
         >
           Retry
         </button>
@@ -174,45 +201,102 @@ export function Courses({ account, courseRegistry }) {
   }
 
   return (
-    <main className="max-w-6xl mx-auto px-6 py-12">
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h2 className="text-3xl font-bold text-white">Available Courses</h2>
-          <p className="text-gray-500 text-sm mt-1">
-            {courses.length} course{courses.length !== 1 ? "s" : ""} on-chain
+    <main className="max-w-[1440px] mx-auto px-6 py-12">
+      {/* Header */}
+      <header className="mb-10" style={{ borderBottom: "1px solid var(--border)", paddingBottom: "1.5rem" }}>
+        <div className="flex flex-wrap items-baseline justify-between gap-4">
+          <div>
+            <p className="eyebrow mb-2">— Catalogue / Vol. 01</p>
+            <h1 className="font-display font-bold tracking-[-0.02em]" style={{ fontSize: "clamp(2rem, 5vw, 3.5rem)", color: "var(--text)" }}>
+              All Courses
+            </h1>
+          </div>
+          <div className="flex items-center gap-3 font-mono text-xs uppercase tracking-[0.16em]" style={{ color: "var(--muted)" }}>
+            <span>
+              Showing {filtered.length} of {courses.length}
+            </span>
             {diag && (
-              <span className="text-gray-600">
-                {" · "}reading node chain {diag.chainId}, block {diag.block}
+              <span style={{ color: "var(--muted-2)" }}>
+                · Chain {diag.chainId} · Block {diag.block}
               </span>
             )}
-          </p>
+            <button
+              onClick={() => { setPhase("loading"); setRetries(0); setRefreshKey((k) => k + 1); }}
+              className="btn btn-ghost btn-sm"
+            >
+              ↻ Refresh
+            </button>
+          </div>
         </div>
-        <button
-          onClick={() => { setPhase("loading"); setRetries(0); setRefreshKey((k) => k + 1); }}
-          className="bg-white/5 hover:bg-white/10 border border-white/10 text-gray-400 px-3 py-1.5 rounded-lg text-xs transition-colors"
-        >
-          Refresh
-        </button>
+      </header>
+
+      {/* Controls */}
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-3 mb-8">
+        <div className="md:col-span-6">
+          <input
+            type="search"
+            placeholder="Search courses by title…"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            className="input"
+          />
+        </div>
+        <div className="md:col-span-4 flex gap-2">
+          {[
+            { v: "all", l: "All" },
+            { v: "free", l: "Free" },
+            { v: "paid", l: "Paid" },
+          ].map(({ v, l }) => (
+            <button
+              key={v}
+              onClick={() => setFilter(v)}
+              className="btn btn-sm flex-1"
+              style={
+                filter === v
+                  ? { background: "var(--accent)", color: "var(--accent-ink)", borderColor: "var(--accent)" }
+                  : undefined
+              }
+            >
+              {l}
+            </button>
+          ))}
+        </div>
+        <div className="md:col-span-2">
+          <select
+            value={sort}
+            onChange={(e) => setSort(e.target.value)}
+            className="input"
+          >
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+            <option value="price-asc">Price ↑</option>
+            <option value="price-desc">Price ↓</option>
+          </select>
+        </div>
       </div>
 
-      {courses.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-24 gap-4 text-center">
-          <div className="text-5xl">📚</div>
-          <p className="text-white font-medium">No courses yet</p>
-          <p className="text-gray-500 text-sm">Be the first to publish one.</p>
+      {filtered.length === 0 ? (
+        <div className="py-24 text-center">
+          <p className="eyebrow mb-2">Empty</p>
+          <p className="font-display text-2xl mb-2" style={{ color: "var(--text)" }}>
+            {courses.length === 0 ? "No courses yet." : "No matches."}
+          </p>
+          <p className="text-sm" style={{ color: "var(--muted)" }}>
+            {courses.length === 0 ? "Be the first to publish one." : "Try a different filter."}
+          </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-          {courses.map((course) => (
-            <CourseCard
-              key={course.id}
-              courseId={course.id}
-              ipfsHash={course.ipfsHash}
-              price={course.price}
-              instructor={course.instructor}
-              enrolled={enrolledMap[course.id] || false}
-              onEnroll={handleEnroll}
-            />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px" style={{ background: "var(--border)" }}>
+          {filtered.map((course) => (
+            <div key={course.id} style={{ background: "var(--bg)" }}>
+              <CourseCard
+                courseId={course.id}
+                ipfsHash={course.ipfsHash}
+                price={course.price}
+                instructor={course.instructor}
+                enrolled={enrolledMap[course.id] || false}
+              />
+            </div>
           ))}
         </div>
       )}
