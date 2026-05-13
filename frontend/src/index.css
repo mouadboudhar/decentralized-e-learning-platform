@@ -246,3 +246,16 @@ a {
   border-bottom: 1px solid var(--border);
   background: var(--surface);
 }
+
+/* TipTap editor host basics — full prose styling lives in prose.css */
+.tiptap-editor-host .ProseMirror {
+  outline: none;
+  min-height: 160px;
+}
+.tiptap-editor-host .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--muted-2);
+  pointer-events: none;
+  float: left;
+  height: 0;
+}
