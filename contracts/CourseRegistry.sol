@@ -10,6 +10,16 @@ contract CourseRegistry {
         bool active;
     }
 
+    struct Lesson {
+        string title;
+        string content;
+    }
+
+    struct Section {
+        string title;
+        Lesson[] lessons;
+    }
+
     uint256 public courseCount;
 
     mapping(uint256 => Course) public courses;
@@ -17,10 +27,15 @@ contract CourseRegistry {
     mapping(uint256 => mapping(address => bool)) public completed;
     mapping(uint256 => uint256) public pendingPayments;
 
+    // courseId => sections (full struct array)
+    mapping(uint256 => Section[]) private courseSections;
+
     event CourseCreated(uint256 indexed courseId, address indexed instructor, string ipfsHash, uint256 price);
     event StudentEnrolled(uint256 indexed courseId, address indexed student);
     event CourseCompleted(uint256 indexed courseId, address indexed student);
     event PaymentClaimed(uint256 indexed courseId, address indexed instructor, uint256 amount);
+    event SectionAdded(uint256 indexed courseId, uint256 indexed sectionIndex, string title);
+    event LessonAdded(uint256 indexed courseId, uint256 indexed sectionIndex, uint256 indexed lessonIndex, string title);
 
     function createCourse(string calldata ipfsHash, uint256 price) external returns (uint256) {
         courseCount++;
@@ -76,5 +91,66 @@ contract CourseRegistry {
 
     function isCompleted(uint256 courseId, address student) external view returns (bool) {
         return completed[courseId][student];
+    }
+
+    // ─── Sections & Lessons ─────────────────────────────────────────────
+
+    function addSection(uint256 courseId, string calldata sectionTitle) external {
+        Course storage course = courses[courseId];
+        require(course.id != 0, "Course does not exist");
+        require(msg.sender == course.instructor, "Not instructor");
+
+        Section storage s = courseSections[courseId].push();
+        s.title = sectionTitle;
+
+        uint256 sectionIndex = courseSections[courseId].length - 1;
+        emit SectionAdded(courseId, sectionIndex, sectionTitle);
+    }
+
+    function addLesson(
+        uint256 courseId,
+        uint256 sectionIndex,
+        string calldata lessonTitle,
+        string calldata lessonContent
+    ) external {
+        Course storage course = courses[courseId];
+        require(course.id != 0, "Course does not exist");
+        require(msg.sender == course.instructor, "Not instructor");
+        require(sectionIndex < courseSections[courseId].length, "Section does not exist");
+
+        Section storage s = courseSections[courseId][sectionIndex];
+        s.lessons.push(Lesson({ title: lessonTitle, content: lessonContent }));
+
+        uint256 lessonIndex = s.lessons.length - 1;
+        emit LessonAdded(courseId, sectionIndex, lessonIndex, lessonTitle);
+    }
+
+    function getSection(uint256 courseId, uint256 sectionIndex)
+        external
+        view
+        returns (Section memory)
+    {
+        require(sectionIndex < courseSections[courseId].length, "Section does not exist");
+        return courseSections[courseId][sectionIndex];
+    }
+
+    function getLesson(uint256 courseId, uint256 sectionIndex, uint256 lessonIndex)
+        external
+        view
+        returns (Lesson memory)
+    {
+        require(sectionIndex < courseSections[courseId].length, "Section does not exist");
+        Section storage s = courseSections[courseId][sectionIndex];
+        require(lessonIndex < s.lessons.length, "Lesson does not exist");
+        return s.lessons[lessonIndex];
+    }
+
+    function getSectionCount(uint256 courseId) external view returns (uint256) {
+        return courseSections[courseId].length;
+    }
+
+    function getLessonCount(uint256 courseId, uint256 sectionIndex) external view returns (uint256) {
+        require(sectionIndex < courseSections[courseId].length, "Section does not exist");
+        return courseSections[courseId][sectionIndex].lessons.length;
     }
 }
