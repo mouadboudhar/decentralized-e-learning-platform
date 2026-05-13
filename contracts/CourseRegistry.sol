@@ -30,6 +30,22 @@ contract CourseRegistry {
         uint256 lessonIndex;    // position within its module
     }
 
+    // Calldata-only inputs for createCourseWithContent. Mirror Lesson/Module
+    // but drop the maintained fields (lessonIndex / lessonCount) which the
+    // contract assigns itself.
+    struct LessonInput {
+        string title;
+        string contentIpfsHash;
+        bytes32 contentHash;
+        uint256 estimatedMinutes;
+    }
+
+    struct ModuleInput {
+        string title;
+        string description;
+        LessonInput[] lessons;
+    }
+
     uint256 public courseCount;
 
     mapping(uint256 => Course) public courses;
@@ -64,16 +80,61 @@ contract CourseRegistry {
     // ── Courses ─────────────────────────────────────────────────────────
 
     function createCourse(string calldata ipfsHash, uint256 price) external returns (uint256) {
+        return _createCourse(ipfsHash, price);
+    }
+
+    function _createCourse(string calldata ipfsHash, uint256 price) internal returns (uint256) {
         courseCount++;
-        courses[courseCount] = Course({
-            id: courseCount,
+        uint256 courseId = courseCount;
+        courses[courseId] = Course({
+            id: courseId,
             instructor: msg.sender,
             ipfsHash: ipfsHash,
             price: price,
             active: true
         });
-        emit CourseCreated(courseCount, msg.sender, ipfsHash, price);
-        return courseCount;
+        emit CourseCreated(courseId, msg.sender, ipfsHash, price);
+        return courseId;
+    }
+
+    /// @notice Publish a course and its full syllabus in a single transaction.
+    /// @dev Frontends should pre-upload lesson HTML to IPFS and compute each
+    ///      lesson's keccak256 hash so this call only handles the on-chain
+    ///      bookkeeping. Modules and lessons can still be appended later via
+    ///      addModule / addLesson.
+    function createCourseWithContent(
+        string calldata ipfsHash,
+        uint256 price,
+        ModuleInput[] calldata modulesInput
+    ) external returns (uint256 courseId) {
+        courseId = _createCourse(ipfsHash, price);
+
+        uint256 lessonsAdded = 0;
+        for (uint256 mi = 0; mi < modulesInput.length; mi++) {
+            ModuleInput calldata m = modulesInput[mi];
+
+            courseModules[courseId].push(Module({
+                title: m.title,
+                description: m.description,
+                lessonCount: m.lessons.length
+            }));
+            emit ModuleAdded(courseId, mi, m.title);
+
+            Lesson[] storage lessons = moduleLessons[courseId][mi];
+            for (uint256 li = 0; li < m.lessons.length; li++) {
+                LessonInput calldata l = m.lessons[li];
+                lessons.push(Lesson({
+                    title: l.title,
+                    contentIpfsHash: l.contentIpfsHash,
+                    contentHash: l.contentHash,
+                    estimatedMinutes: l.estimatedMinutes,
+                    lessonIndex: li
+                }));
+                emit LessonAdded(courseId, mi, li, l.title, l.contentIpfsHash, l.contentHash);
+                lessonsAdded++;
+            }
+        }
+        totalLessons[courseId] = lessonsAdded;
     }
 
     function enroll(uint256 courseId) external payable {

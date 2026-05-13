@@ -176,4 +176,93 @@ describe("CourseRegistry", function () {
       expect(await courseRegistry.getTotalLessons(1)).to.equal(3);
     });
   });
+
+  describe("createCourseWithContent (batched publish)", function () {
+    const hashA = ethers.keccak256(ethers.toUtf8Bytes("<p>a</p>"));
+    const hashB = ethers.keccak256(ethers.toUtf8Bytes("<p>b</p>"));
+    const hashC = ethers.keccak256(ethers.toUtf8Bytes("<p>c</p>"));
+
+    it("creates course, modules, and lessons in one transaction", async function () {
+      const modulesInput = [
+        {
+          title: "Intro",
+          description: "Getting started",
+          lessons: [
+            { title: "L1", contentIpfsHash: "QmL1", contentHash: hashA, estimatedMinutes: 5 },
+            { title: "L2", contentIpfsHash: "QmL2", contentHash: hashB, estimatedMinutes: 10 },
+          ],
+        },
+        {
+          title: "Advanced",
+          description: "Deeper dive",
+          lessons: [
+            { title: "L3", contentIpfsHash: "QmL3", contentHash: hashC, estimatedMinutes: 15 },
+          ],
+        },
+      ];
+
+      const tx = await courseRegistry
+        .connect(instructor)
+        .createCourseWithContent("QmMeta", ethers.parseEther("0.1"), modulesInput);
+      const receipt = await tx.wait();
+
+      // Course event fires
+      const courseCreated = receipt.logs.find(
+        (l) => l.fragment && l.fragment.name === "CourseCreated"
+      );
+      expect(courseCreated).to.not.be.undefined;
+      expect(Number(courseCreated.args[0])).to.equal(1);
+
+      // Module + lesson events fire in order
+      const moduleEvents = receipt.logs.filter((l) => l.fragment?.name === "ModuleAdded");
+      const lessonEvents = receipt.logs.filter((l) => l.fragment?.name === "LessonAdded");
+      expect(moduleEvents.length).to.equal(2);
+      expect(lessonEvents.length).to.equal(3);
+
+      // Storage matches input
+      expect(await courseRegistry.getModuleCount(1)).to.equal(2);
+      expect(await courseRegistry.getLessonCount(1, 0)).to.equal(2);
+      expect(await courseRegistry.getLessonCount(1, 1)).to.equal(1);
+      expect(await courseRegistry.getTotalLessons(1)).to.equal(3);
+
+      const mod0 = await courseRegistry.getModule(1, 0);
+      expect(mod0.title).to.equal("Intro");
+      expect(mod0.lessonCount).to.equal(2);
+
+      const l2 = await courseRegistry.getLesson(1, 0, 1);
+      expect(l2.title).to.equal("L2");
+      expect(l2.contentIpfsHash).to.equal("QmL2");
+      expect(l2.contentHash).to.equal(hashB);
+      expect(l2.estimatedMinutes).to.equal(10);
+      expect(l2.lessonIndex).to.equal(1);
+    });
+
+    it("works with no modules (metadata-only publish)", async function () {
+      await courseRegistry
+        .connect(instructor)
+        .createCourseWithContent("QmMeta", 0, []);
+
+      expect(await courseRegistry.getModuleCount(1)).to.equal(0);
+      expect(await courseRegistry.getTotalLessons(1)).to.equal(0);
+    });
+
+    it("works with a module that has no lessons", async function () {
+      const modulesInput = [{ title: "Empty", description: "", lessons: [] }];
+      await courseRegistry
+        .connect(instructor)
+        .createCourseWithContent("QmMeta", 0, modulesInput);
+
+      expect(await courseRegistry.getModuleCount(1)).to.equal(1);
+      expect(await courseRegistry.getLessonCount(1, 0)).to.equal(0);
+      expect(await courseRegistry.getTotalLessons(1)).to.equal(0);
+    });
+
+    it("the new course belongs to msg.sender (the publishing instructor)", async function () {
+      await courseRegistry
+        .connect(instructor)
+        .createCourseWithContent("QmMeta", 0, []);
+      const course = await courseRegistry.courses(1);
+      expect(course.instructor).to.equal(instructor.address);
+    });
+  });
 });

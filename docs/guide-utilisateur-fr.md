@@ -95,19 +95,17 @@ Le panneau de droite affiche un aperçu live du plan au fur et à mesure.
 
 #### Étape 3 — Revue et publication
 
-L'écran de revue affiche un résumé du cours, un avertissement de permanence et l'estimation du nombre de transactions :
+L'écran de revue affiche un résumé du cours, un avertissement de permanence et l'estimation du nombre de signatures :
 
-> N transactions : 1 create + M modules + L leçons.
+> 1 transaction — `createCourseWithContent` regroupe tous les modules et toutes les leçons.
 
-Plus L uploads IPFS off-chain pour le contenu des leçons (sans gas).
+Plus L uploads IPFS off-chain pour le contenu des leçons (sans gas, sans signature).
 
 Cliquer sur **Publish Course** déclenche ce pipeline :
 
 1. Pour chaque leçon : sanitisation du HTML, upload IPFS, calcul `keccak256` des octets sanitisés.
 2. Upload du JSON de métadonnées du cours sur IPFS.
-3. Signature et envoi de `createCourse(metadataCID, priceWei)`.
-4. Pour chaque module : signature et envoi de `addModule(...)`.
-5. Pour chaque leçon : signature et envoi de `addLesson(courseId, moduleIndex, title, contentCID, contentHash, minutes)`.
+3. **Signez une seule fois** dans MetaMask. L'appel `createCourseWithContent(metadataCID, priceWei, modules)` crée le cours, tous les modules et toutes les leçons en une seule transaction.
 
 La progression est affichée par phase. En cas de succès, vous êtes redirigé vers la page de détail du nouveau cours.
 

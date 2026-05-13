@@ -352,6 +352,74 @@ export const COURSE_REGISTRY_ABI = [
   {
     "inputs": [
       {
+        "internalType": "string",
+        "name": "ipfsHash",
+        "type": "string"
+      },
+      {
+        "internalType": "uint256",
+        "name": "price",
+        "type": "uint256"
+      },
+      {
+        "components": [
+          {
+            "internalType": "string",
+            "name": "title",
+            "type": "string"
+          },
+          {
+            "internalType": "string",
+            "name": "description",
+            "type": "string"
+          },
+          {
+            "components": [
+              {
+                "internalType": "string",
+                "name": "title",
+                "type": "string"
+              },
+              {
+                "internalType": "string",
+                "name": "contentIpfsHash",
+                "type": "string"
+              },
+              {
+                "internalType": "bytes32",
+                "name": "contentHash",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "uint256",
+                "name": "estimatedMinutes",
+                "type": "uint256"
+              }
+            ],
+            "internalType": "struct CourseRegistry.LessonInput[]",
+            "name": "lessons",
+            "type": "tuple[]"
+          }
+        ],
+        "internalType": "struct CourseRegistry.ModuleInput[]",
+        "name": "modulesInput",
+        "type": "tuple[]"
+      }
+    ],
+    "name": "createCourseWithContent",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "courseId",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "uint256",
         "name": "courseId",
         "type": "uint256"

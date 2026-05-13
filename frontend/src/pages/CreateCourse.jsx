@@ -157,6 +157,9 @@ export function CreateCourse({ account, connect, courseRegistry }) {
     );
 
   // ── Publish flow ──────────────────────────────────────────────────────
+  // Single-transaction publish: every lesson's HTML is uploaded to IPFS
+  // off-chain (no gas), then the full Course > Module > Lesson tree is
+  // submitted to createCourseWithContent in one signature.
   async function publish() {
     if (!courseRegistry) return;
     setError(null);
@@ -170,10 +173,9 @@ export function CreateCourse({ account, connect, courseRegistry }) {
         );
       }
 
-      // Build the canonical (sanitized + IPFS-uploaded) module list. We
-      // sanitize each lesson HTML, upload the sanitized payload, then compute
-      // the keccak256 hash of the SAME bytes that landed on IPFS — that's
-      // what the on-chain contentHash will commit to.
+      // Canonicalize modules: trim titles/descriptions, sanitize HTML, drop
+      // empty rows. The sanitized HTML is the canonical form the on-chain
+      // contentHash commits to.
       const validModules = modules
         .map((m) => ({
           title: m.title.trim(),
@@ -190,21 +192,24 @@ export function CreateCourse({ account, connect, courseRegistry }) {
 
       const totalLessons = validModules.reduce((a, m) => a + m.lessons.length, 0);
 
-      // 1. Upload each lesson's sanitized HTML to IPFS, capturing CID and
-      //    keccak256 hash of the sanitized payload.
+      // 1. Off-chain: upload every lesson's sanitized HTML to IPFS, capture
+      //    its CID and the keccak256 hash of the same bytes.
       let li = 0;
       for (const mod of validModules) {
         for (const lesson of mod.lessons) {
           li++;
-          setProgress({ phase: "lessons-ipfs", current: li, total: totalLessons, label: `Uploading lesson content (${li}/${totalLessons})…` });
-          const cid = await uploadLessonContent(lesson.html);
-          const hash = ethers.keccak256(ethers.toUtf8Bytes(lesson.html));
-          lesson.cid = cid;
-          lesson.hash = hash;
+          setProgress({
+            phase: "lessons-ipfs",
+            current: li,
+            total: totalLessons,
+            label: `Uploading lesson content (${li}/${totalLessons})…`,
+          });
+          lesson.cid = await uploadLessonContent(lesson.html);
+          lesson.hash = ethers.keccak256(ethers.toUtf8Bytes(lesson.html));
         }
       }
 
-      // 2. Upload course metadata
+      // 2. Off-chain: upload course metadata JSON.
       setProgress({ phase: "meta", label: "Uploading course metadata…" });
       const meta = {
         title: title.trim(),
@@ -216,43 +221,38 @@ export function CreateCourse({ account, connect, courseRegistry }) {
       };
       const metaCID = await uploadJSON(meta);
 
-      // 3. Create course
+      // 3. Build the calldata struct array for the single batched call.
+      const modulesPayload = validModules.map((m) => ({
+        title: m.title,
+        description: m.description,
+        lessons: m.lessons.map((l) => ({
+          title: l.title,
+          contentIpfsHash: l.cid,
+          contentHash: l.hash,
+          estimatedMinutes: l.minutes,
+        })),
+      }));
+
+      // 4. Single signature: createCourseWithContent does the create +
+      //    every addModule + every addLesson inside one transaction.
       const priceWei = ethers.parseEther(priceEth || "0");
-      setProgress({ phase: "course", label: "Creating course on-chain…" });
+      setProgress({
+        phase: "publish",
+        label: "Confirm in MetaMask — one transaction publishes everything.",
+      });
       const readRegistry = makeReadRegistry();
       const before = await readRegistry.courseCount();
-      const tx = await courseRegistry.createCourse(metaCID, priceWei);
+      const tx = await courseRegistry.createCourseWithContent(metaCID, priceWei, modulesPayload);
+      setProgress({
+        phase: "publish",
+        label: `Transaction sent (${tx.hash.slice(0, 12)}…). Waiting for confirmation…`,
+      });
       await tx.wait();
       const after = await readRegistry.courseCount();
       if (!(after > before)) {
         throw new Error("Course count did not change. MetaMask may be on a different node.");
       }
       const courseId = Number(after);
-
-      // 4. Add modules
-      for (let i = 0; i < validModules.length; i++) {
-        setProgress({ phase: "modules", current: i + 1, total: validModules.length, label: `Adding module (${i + 1}/${validModules.length})…` });
-        const mTx = await courseRegistry.addModule(courseId, validModules[i].title, validModules[i].description);
-        await mTx.wait();
-      }
-
-      // 5. Add lessons
-      let lessonDone = 0;
-      for (let i = 0; i < validModules.length; i++) {
-        for (const lesson of validModules[i].lessons) {
-          lessonDone++;
-          setProgress({ phase: "lessons", current: lessonDone, total: totalLessons, label: `Adding lessons (${lessonDone}/${totalLessons})…` });
-          const lTx = await courseRegistry.addLesson(
-            courseId,
-            i,
-            lesson.title,
-            lesson.cid,
-            lesson.hash,
-            lesson.minutes
-          );
-          await lTx.wait();
-        }
-      }
 
       setProgress({ phase: "done", label: "Done. Opening course…" });
       setTimeout(() => navigate(`/courses/${courseId}`), 600);
@@ -519,7 +519,6 @@ export function CreateCourse({ account, connect, courseRegistry }) {
     (acc, m) => acc + (m.title.trim() ? m.lessons.filter((l) => l.title.trim()).length : 0),
     0
   );
-  const totalTx = 1 + totalModules + totalLessonsCt;
 
   return (
     <main className="max-w-3xl mx-auto px-6 py-12">
@@ -543,15 +542,15 @@ export function CreateCourse({ account, connect, courseRegistry }) {
       </div>
 
       <div className="card p-4 mb-4">
-        <p className="eyebrow mb-1">Transactions required</p>
+        <p className="eyebrow mb-1">Signatures required</p>
         <p className="font-mono text-sm" style={{ color: "var(--text)" }}>
-          {totalTx} ·{" "}
+          1 transaction ·{" "}
           <span style={{ color: "var(--muted)" }}>
-            1 create + {totalModules} module{totalModules === 1 ? "" : "s"} + {totalLessonsCt} lesson{totalLessonsCt === 1 ? "" : "s"}
+            createCourseWithContent batches {totalModules} module{totalModules === 1 ? "" : "s"} + {totalLessonsCt} lesson{totalLessonsCt === 1 ? "" : "s"}
           </span>
         </p>
         <p className="font-mono text-xs mt-1" style={{ color: "var(--muted-2)" }}>
-          + {totalLessonsCt} IPFS upload{totalLessonsCt === 1 ? "" : "s"} for lesson content (off-chain, no gas)
+          + {totalLessonsCt} IPFS upload{totalLessonsCt === 1 ? "" : "s"} for lesson content (off-chain, no gas, no signature)
         </p>
       </div>
 

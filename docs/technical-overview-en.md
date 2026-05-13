@@ -29,6 +29,11 @@ The contract also keeps `totalLessons[courseId]` so the frontend can compute pro
 
 ```solidity
 function createCourse(string ipfsHash, uint256 price) external returns (uint256);
+function createCourseWithContent(
+    string ipfsHash,
+    uint256 price,
+    ModuleInput[] modulesInput        // each ModuleInput nests LessonInput[]
+) external returns (uint256);          // batched publish, single signature
 function enroll(uint256 courseId) external payable;
 function markComplete(uint256 courseId, address student) external; // instructor only
 function claimPayment(uint256 courseId) external;                   // instructor only

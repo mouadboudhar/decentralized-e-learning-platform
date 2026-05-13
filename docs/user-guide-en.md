@@ -95,19 +95,17 @@ The right-hand panel shows a live outline preview as you build.
 
 #### Step 3 — Review & publish
 
-The review screen shows a summary of your course, a permanence warning, and the transaction count estimate:
+The review screen shows a summary of your course, a permanence warning, and the signature estimate:
 
-> N transactions: 1 create + M modules + L lessons.
+> 1 transaction — `createCourseWithContent` batches every module and lesson together.
 
-Plus L off-chain IPFS uploads for lesson content (no gas).
+Plus L off-chain IPFS uploads for lesson content (no gas, no signature).
 
 Clicking **Publish Course** runs this pipeline:
 
 1. For every lesson: sanitize the HTML, upload to IPFS, compute `keccak256` of the sanitized bytes.
 2. Upload the course metadata JSON to IPFS.
-3. Sign and send `createCourse(metadataCID, priceWei)`.
-4. For every module: sign and send `addModule(...)`.
-5. For every lesson: sign and send `addLesson(courseId, moduleIndex, title, contentCID, contentHash, minutes)`.
+3. **Sign once** in MetaMask. The single `createCourseWithContent(metadataCID, priceWei, modules)` call writes the course, all modules, and all lessons in one transaction.
 
 Progress is reported per phase. On success you are redirected to the new course detail page.
 
