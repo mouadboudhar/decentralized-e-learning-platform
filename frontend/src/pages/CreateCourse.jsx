@@ -1,8 +1,12 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ethers } from "ethers";
-import { uploadJSON } from "../utils/ipfs";
+import { uploadJSON, uploadLessonContent } from "../utils/ipfs";
+import { sanitizeForStorage } from "../utils/sanitize";
+import { Editor } from "../components/Editor";
 import { COURSE_REGISTRY_ADDRESS, COURSE_REGISTRY_ABI } from "../utils/contracts";
+
+const DIFFICULTY_OPTIONS = ["Beginner", "Intermediate", "Advanced"];
 
 function makeReadRegistry() {
   const provider = new ethers.JsonRpcProvider(
@@ -13,8 +17,8 @@ function makeReadRegistry() {
   return new ethers.Contract(COURSE_REGISTRY_ADDRESS, COURSE_REGISTRY_ABI, provider);
 }
 
-const emptyLesson = () => ({ title: "", content: "" });
-const emptySection = () => ({ title: "", lessons: [emptyLesson()] });
+const newLesson = () => ({ title: "", html: "", minutes: 5 });
+const newModule = () => ({ title: "", description: "", lessons: [newLesson()] });
 
 function Stepper({ step }) {
   const labels = ["Course Info", "Content", "Review & Publish"];
@@ -32,9 +36,7 @@ function Stepper({ step }) {
               color: active ? "var(--accent-ink)" : done ? "var(--text)" : "var(--muted)",
             }}
           >
-            <p className="font-mono text-xs uppercase tracking-[0.16em] mb-1">
-              Step 0{i + 1}
-            </p>
+            <p className="font-mono text-xs uppercase tracking-[0.16em] mb-1">Step 0{i + 1}</p>
             <p className="font-display font-semibold text-sm">{l}</p>
           </div>
         );
@@ -43,18 +45,40 @@ function Stepper({ step }) {
   );
 }
 
+function ConfirmInline({ onConfirm, onCancel, label }) {
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span className="font-mono text-xs" style={{ color: "var(--danger)" }}>{label}</span>
+      <button onClick={onConfirm} className="btn btn-ghost btn-sm" style={{ color: "var(--danger)" }}>
+        Confirm
+      </button>
+      <button onClick={onCancel} className="btn btn-ghost btn-sm">Cancel</button>
+    </span>
+  );
+}
+
 export function CreateCourse({ account, connect, courseRegistry }) {
   const navigate = useNavigate();
   const [step, setStep] = useState(1);
 
+  // Step 1
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priceEth, setPriceEth] = useState("");
+  const [thumbnail, setThumbnail] = useState("");
+  const [difficulty, setDifficulty] = useState("Beginner");
+  const [hours, setHours] = useState("");
+  const [tagsStr, setTagsStr] = useState("");
+  const [thumbnailError, setThumbnailError] = useState("");
+  const [tagsError, setTagsError] = useState("");
 
-  const [sections, setSections] = useState([emptySection()]);
+  // Step 2
+  const [modules, setModules] = useState([newModule()]);
+  const [confirmRemove, setConfirmRemove] = useState(null); // "module-i" | "lesson-i-j"
 
+  // Step 3
   const [publishing, setPublishing] = useState(false);
-  const [progress, setProgress] = useState(null); // { phase, current, total, label }
+  const [progress, setProgress] = useState(null);
   const [error, setError] = useState(null);
 
   if (!account) {
@@ -67,76 +91,76 @@ export function CreateCourse({ account, connect, courseRegistry }) {
         <p className="text-sm mb-8" style={{ color: "var(--muted)" }}>
           Publishing a course writes to chain. You need a wallet to sign.
         </p>
-        <button onClick={connect} className="btn btn-primary btn-lg">
-          Connect Wallet
-        </button>
+        <button onClick={connect} className="btn btn-primary btn-lg">Connect Wallet</button>
       </main>
     );
   }
 
-  // ── Section/Lesson helpers ────────────────────────────────────────────
-  function addSection() {
-    setSections((s) => [...s, emptySection()]);
+  const tags = tagsStr.split(",").map((t) => t.trim()).filter(Boolean).slice(0, 5);
+
+  function validateStep1() {
+    let ok = true;
+    setThumbnailError("");
+    setTagsError("");
+    if (thumbnail && !/^https:\/\//i.test(thumbnail.trim())) {
+      setThumbnailError("Thumbnail must start with https://");
+      ok = false;
+    }
+    if (tagsStr.split(",").map((t) => t.trim()).filter(Boolean).length > 5) {
+      setTagsError("Maximum 5 tags.");
+      ok = false;
+    }
+    return ok;
   }
-  function removeSection(idx) {
-    setSections((s) => s.filter((_, i) => i !== idx));
-  }
-  function moveSection(idx, dir) {
-    setSections((s) => {
-      const j = idx + dir;
+
+  // ── Module/lesson helpers ─────────────────────────────────────────────
+  const updateModule = (mi, patch) => {
+    setModules((s) => s.map((m, i) => (i === mi ? { ...m, ...patch } : m)));
+  };
+  const updateLesson = (mi, li, patch) => {
+    setModules((s) =>
+      s.map((m, i) =>
+        i === mi
+          ? { ...m, lessons: m.lessons.map((l, j) => (j === li ? { ...l, ...patch } : l)) }
+          : m
+      )
+    );
+  };
+  const addModule = () => setModules((s) => [...s, newModule()]);
+  const removeModule = (mi) => setModules((s) => s.filter((_, i) => i !== mi));
+  const moveModule = (mi, dir) =>
+    setModules((s) => {
+      const j = mi + dir;
       if (j < 0 || j >= s.length) return s;
       const next = s.slice();
-      [next[idx], next[j]] = [next[j], next[idx]];
+      [next[mi], next[j]] = [next[j], next[mi]];
       return next;
     });
-  }
-  function updateSectionTitle(idx, value) {
-    setSections((s) => s.map((sec, i) => (i === idx ? { ...sec, title: value } : sec)));
-  }
-  function addLesson(secIdx) {
-    setSections((s) =>
-      s.map((sec, i) => (i === secIdx ? { ...sec, lessons: [...sec.lessons, emptyLesson()] } : sec))
+  const addLesson = (mi) =>
+    setModules((s) =>
+      s.map((m, i) => (i === mi ? { ...m, lessons: [...m.lessons, newLesson()] } : m))
     );
-  }
-  function removeLesson(secIdx, lessonIdx) {
-    setSections((s) =>
-      s.map((sec, i) =>
-        i === secIdx ? { ...sec, lessons: sec.lessons.filter((_, j) => j !== lessonIdx) } : sec
-      )
+  const removeLesson = (mi, li) =>
+    setModules((s) =>
+      s.map((m, i) => (i === mi ? { ...m, lessons: m.lessons.filter((_, j) => j !== li) } : m))
     );
-  }
-  function moveLesson(secIdx, lessonIdx, dir) {
-    setSections((s) =>
-      s.map((sec, i) => {
-        if (i !== secIdx) return sec;
-        const j = lessonIdx + dir;
-        if (j < 0 || j >= sec.lessons.length) return sec;
-        const arr = sec.lessons.slice();
-        [arr[lessonIdx], arr[j]] = [arr[j], arr[lessonIdx]];
-        return { ...sec, lessons: arr };
+  const moveLesson = (mi, li, dir) =>
+    setModules((s) =>
+      s.map((m, i) => {
+        if (i !== mi) return m;
+        const j = li + dir;
+        if (j < 0 || j >= m.lessons.length) return m;
+        const arr = m.lessons.slice();
+        [arr[li], arr[j]] = [arr[j], arr[li]];
+        return { ...m, lessons: arr };
       })
     );
-  }
-  function updateLesson(secIdx, lessonIdx, key, value) {
-    setSections((s) =>
-      s.map((sec, i) =>
-        i === secIdx
-          ? {
-              ...sec,
-              lessons: sec.lessons.map((l, j) => (j === lessonIdx ? { ...l, [key]: value } : l)),
-            }
-          : sec
-      )
-    );
-  }
 
   // ── Publish flow ──────────────────────────────────────────────────────
   async function publish() {
     if (!courseRegistry) return;
     setError(null);
     setPublishing(true);
-    setProgress({ phase: "init", label: "Preparing publication…" });
-
     try {
       const walletProvider = courseRegistry.runner?.provider;
       const net = await walletProvider.getNetwork();
@@ -146,70 +170,95 @@ export function CreateCourse({ account, connect, courseRegistry }) {
         );
       }
 
+      // Build the canonical (sanitized + IPFS-uploaded) module list. We
+      // sanitize each lesson HTML, upload the sanitized payload, then compute
+      // the keccak256 hash of the SAME bytes that landed on IPFS — that's
+      // what the on-chain contentHash will commit to.
+      const validModules = modules
+        .map((m) => ({
+          title: m.title.trim(),
+          description: m.description.trim(),
+          lessons: m.lessons
+            .map((l) => ({
+              title: l.title.trim(),
+              html: sanitizeForStorage(l.html),
+              minutes: Math.max(0, Number(l.minutes) || 0),
+            }))
+            .filter((l) => l.title.length > 0),
+        }))
+        .filter((m) => m.title.length > 0);
+
+      const totalLessons = validModules.reduce((a, m) => a + m.lessons.length, 0);
+
+      // 1. Upload each lesson's sanitized HTML to IPFS, capturing CID and
+      //    keccak256 hash of the sanitized payload.
+      let li = 0;
+      for (const mod of validModules) {
+        for (const lesson of mod.lessons) {
+          li++;
+          setProgress({ phase: "lessons-ipfs", current: li, total: totalLessons, label: `Uploading lesson content (${li}/${totalLessons})…` });
+          const cid = await uploadLessonContent(lesson.html);
+          const hash = ethers.keccak256(ethers.toUtf8Bytes(lesson.html));
+          lesson.cid = cid;
+          lesson.hash = hash;
+        }
+      }
+
+      // 2. Upload course metadata
+      setProgress({ phase: "meta", label: "Uploading course metadata…" });
+      const meta = {
+        title: title.trim(),
+        description: description.trim(),
+        thumbnail: thumbnail.trim(),
+        difficulty,
+        estimatedHours: Number(hours) || 0,
+        tags,
+      };
+      const metaCID = await uploadJSON(meta);
+
+      // 3. Create course
+      const priceWei = ethers.parseEther(priceEth || "0");
+      setProgress({ phase: "course", label: "Creating course on-chain…" });
       const readRegistry = makeReadRegistry();
       const before = await readRegistry.courseCount();
-
-      setProgress({ phase: "ipfs", label: "Uploading metadata…" });
-      const ipfsHash = await uploadJSON({ title, description });
-      const priceWei = ethers.parseEther(priceEth || "0");
-
-      setProgress({ phase: "course", label: "Creating course on-chain…" });
-      const tx = await courseRegistry.createCourse(ipfsHash, priceWei);
+      const tx = await courseRegistry.createCourse(metaCID, priceWei);
       await tx.wait();
-
       const after = await readRegistry.courseCount();
       if (!(after > before)) {
-        throw new Error(
-          "Transaction mined but course count did not change. MetaMask may be on a different node."
-        );
+        throw new Error("Course count did not change. MetaMask may be on a different node.");
       }
       const courseId = Number(after);
 
-      const validSections = sections
-        .map((s) => ({
-          title: s.title.trim(),
-          lessons: s.lessons
-            .map((l) => ({ title: l.title.trim(), content: l.content.trim() }))
-            .filter((l) => l.title.length > 0),
-        }))
-        .filter((s) => s.title.length > 0);
-
-      for (let i = 0; i < validSections.length; i++) {
-        setProgress({
-          phase: "sections",
-          current: i + 1,
-          total: validSections.length,
-          label: `Adding section ${i + 1}/${validSections.length}…`,
-        });
-        const sTx = await courseRegistry.addSection(courseId, validSections[i].title);
-        await sTx.wait();
+      // 4. Add modules
+      for (let i = 0; i < validModules.length; i++) {
+        setProgress({ phase: "modules", current: i + 1, total: validModules.length, label: `Adding module (${i + 1}/${validModules.length})…` });
+        const mTx = await courseRegistry.addModule(courseId, validModules[i].title, validModules[i].description);
+        await mTx.wait();
       }
 
-      let lessonTotal = validSections.reduce((acc, s) => acc + s.lessons.length, 0);
+      // 5. Add lessons
       let lessonDone = 0;
-      for (let i = 0; i < validSections.length; i++) {
-        for (let j = 0; j < validSections[i].lessons.length; j++) {
+      for (let i = 0; i < validModules.length; i++) {
+        for (const lesson of validModules[i].lessons) {
           lessonDone++;
-          setProgress({
-            phase: "lessons",
-            current: lessonDone,
-            total: lessonTotal,
-            label: `Adding lesson ${lessonDone}/${lessonTotal}…`,
-          });
-          const l = validSections[i].lessons[j];
-          const lTx = await courseRegistry.addLesson(courseId, i, l.title, l.content);
+          setProgress({ phase: "lessons", current: lessonDone, total: totalLessons, label: `Adding lessons (${lessonDone}/${totalLessons})…` });
+          const lTx = await courseRegistry.addLesson(
+            courseId,
+            i,
+            lesson.title,
+            lesson.cid,
+            lesson.hash,
+            lesson.minutes
+          );
           await lTx.wait();
         }
       }
 
-      setProgress({ phase: "done", label: "Published. Opening course…" });
-      setTimeout(() => navigate(`/courses/${courseId}`), 800);
+      setProgress({ phase: "done", label: "Done. Opening course…" });
+      setTimeout(() => navigate(`/courses/${courseId}`), 600);
     } catch (err) {
       console.error(err);
-      let msg = err.reason || err.shortMessage || err.message || String(err);
-      if (/nonce/i.test(msg)) {
-        msg += "  —  Reset MetaMask account activity (Settings → Advanced → Clear activity).";
-      }
+      const msg = err.reason || err.shortMessage || err.message || String(err);
       setError(msg);
       setProgress(null);
     } finally {
@@ -217,9 +266,9 @@ export function CreateCourse({ account, connect, courseRegistry }) {
     }
   }
 
-  // ── Step 1 — Info ─────────────────────────────────────────────────────
+  // ────── Step 1 ───────────────────────────────────────────────────────
   if (step === 1) {
-    const canNext = title.trim() && description.trim() && priceEth !== "";
+    const canNext = title.trim() && description.trim() && priceEth !== "" && !thumbnailError && !tagsError;
     return (
       <main className="max-w-3xl mx-auto px-6 py-12">
         <header className="mb-10">
@@ -228,45 +277,74 @@ export function CreateCourse({ account, connect, courseRegistry }) {
             Course Info
           </h1>
         </header>
-
         <Stepper step={1} />
-
         <div className="card p-6 flex flex-col gap-6">
           <div>
             <label className="label block mb-2">Title</label>
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g. Solidity for Beginners"
-              className="input"
-            />
+            <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Solidity for Beginners" />
           </div>
           <div>
             <label className="label block mb-2">Description</label>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={5}
-              placeholder="What will students learn?"
-              className="input"
-              style={{ resize: "vertical" }}
-            />
+            <textarea className="input" rows={5} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What will students learn?" style={{ resize: "vertical" }} />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="label block mb-2">Price (ETH) — 0 for free</label>
+              <input className="input" type="number" min="0" step="0.001" value={priceEth} onChange={(e) => setPriceEth(e.target.value)} placeholder="0.05" />
+            </div>
+            <div>
+              <label className="label block mb-2">Estimated total hours</label>
+              <input className="input" type="number" min="0" step="0.5" value={hours} onChange={(e) => setHours(e.target.value)} placeholder="8" />
+            </div>
           </div>
           <div>
-            <label className="label block mb-2">Price (ETH) — 0 for free</label>
-            <input
-              type="number"
-              min="0"
-              step="0.001"
-              value={priceEth}
-              onChange={(e) => setPriceEth(e.target.value)}
-              placeholder="0.05"
-              className="input"
-            />
+            <label className="label block mb-2">Thumbnail URL (https://…)</label>
+            <input className="input" type="url" value={thumbnail} onChange={(e) => setThumbnail(e.target.value)} placeholder="https://example.com/thumb.png" />
+            {thumbnailError && <p className="font-mono text-xs mt-1" style={{ color: "var(--danger)" }}>{thumbnailError}</p>}
+          </div>
+          <div>
+            <label className="label block mb-2">Difficulty</label>
+            <div className="flex gap-2">
+              {DIFFICULTY_OPTIONS.map((opt) => (
+                <button
+                  key={opt}
+                  onClick={() => setDifficulty(opt)}
+                  className="btn btn-sm"
+                  style={
+                    difficulty === opt
+                      ? { background: "var(--accent)", color: "var(--accent-ink)", borderColor: "var(--accent)" }
+                      : undefined
+                  }
+                >
+                  {opt}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="label block mb-2">Tags (comma separated, max 5)</label>
+            <input className="input" value={tagsStr} onChange={(e) => setTagsStr(e.target.value)} placeholder="solidity, defi, security" />
+            {tagsError && <p className="font-mono text-xs mt-1" style={{ color: "var(--danger)" }}>{tagsError}</p>}
+            {tags.length > 0 && (
+              <div className="flex gap-2 mt-2 flex-wrap">
+                {tags.map((t, i) => (
+                  <span
+                    key={i}
+                    className="font-mono text-xs uppercase tracking-[0.16em] px-2 py-1"
+                    style={{ background: "var(--surface-2)", border: "1px solid var(--border)", color: "var(--muted)" }}
+                  >
+                    #{t}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
           <div className="flex justify-end">
-            <button onClick={() => setStep(2)} disabled={!canNext} className="btn btn-primary btn-lg">
+            <button
+              onClick={() => { if (validateStep1()) setStep(2); }}
+              disabled={!canNext}
+              className="btn btn-primary btn-lg"
+            >
               Next →
             </button>
           </div>
@@ -275,9 +353,9 @@ export function CreateCourse({ account, connect, courseRegistry }) {
     );
   }
 
-  // ── Step 2 — Content ──────────────────────────────────────────────────
+  // ────── Step 2 ───────────────────────────────────────────────────────
   if (step === 2) {
-    const hasContent = sections.some((s) => s.title.trim() && s.lessons.some((l) => l.title.trim()));
+    const hasContent = modules.some((m) => m.title.trim() && m.lessons.some((l) => l.title.trim()));
     return (
       <main className="max-w-[1440px] mx-auto px-6 py-12">
         <header className="mb-10">
@@ -286,96 +364,135 @@ export function CreateCourse({ account, connect, courseRegistry }) {
             Build the syllabus
           </h1>
         </header>
-
         <Stepper step={2} />
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Builder */}
-          <div className="lg:col-span-8 flex flex-col gap-4">
-            {sections.map((sec, sIdx) => (
-              <div key={sIdx} className="card p-5">
+          <div className="lg:col-span-8 flex flex-col gap-5">
+            {modules.map((mod, mi) => (
+              <div key={mi} className="card p-5">
                 <div className="flex items-center gap-2 mb-4">
                   <span className="font-mono text-xs uppercase tracking-[0.16em]" style={{ color: "var(--muted)" }}>
-                    Section {sIdx + 1}
+                    Module {String(mi + 1).padStart(2, "0")}
                   </span>
                   <div className="flex-1" />
-                  <button onClick={() => moveSection(sIdx, -1)} className="btn btn-ghost btn-sm" disabled={sIdx === 0}>↑</button>
-                  <button onClick={() => moveSection(sIdx, 1)} className="btn btn-ghost btn-sm" disabled={sIdx === sections.length - 1}>↓</button>
-                  <button onClick={() => removeSection(sIdx)} className="btn btn-ghost btn-sm" style={{ color: "var(--danger)" }}>Remove</button>
+                  <button onClick={() => moveModule(mi, -1)} className="btn btn-ghost btn-sm" disabled={mi === 0}>↑</button>
+                  <button onClick={() => moveModule(mi, 1)} className="btn btn-ghost btn-sm" disabled={mi === modules.length - 1}>↓</button>
+                  {confirmRemove === `module-${mi}` ? (
+                    <ConfirmInline
+                      label="Remove module?"
+                      onConfirm={() => { removeModule(mi); setConfirmRemove(null); }}
+                      onCancel={() => setConfirmRemove(null)}
+                    />
+                  ) : (
+                    <button
+                      onClick={() => setConfirmRemove(`module-${mi}`)}
+                      className="btn btn-ghost btn-sm"
+                      style={{ color: "var(--danger)" }}
+                    >
+                      Remove
+                    </button>
+                  )}
                 </div>
                 <input
-                  type="text"
-                  value={sec.title}
-                  onChange={(e) => updateSectionTitle(sIdx, e.target.value)}
-                  placeholder="Section title…"
-                  className="input mb-4"
+                  className="input mb-3"
+                  value={mod.title}
+                  onChange={(e) => updateModule(mi, { title: e.target.value })}
+                  placeholder="Module title…"
                 />
-                <div className="flex flex-col gap-3">
-                  {sec.lessons.map((l, lIdx) => (
+                <textarea
+                  className="input mb-4"
+                  rows={2}
+                  value={mod.description}
+                  onChange={(e) => updateModule(mi, { description: e.target.value })}
+                  placeholder="Module description…"
+                  style={{ resize: "vertical" }}
+                />
+
+                <div className="flex flex-col gap-4">
+                  {mod.lessons.map((lesson, li) => (
                     <div
-                      key={lIdx}
-                      className="p-4"
+                      key={li}
                       style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}
+                      className="p-4"
                     >
-                      <div className="flex items-center gap-2 mb-2">
+                      <div className="flex items-center gap-2 mb-3">
                         <span className="font-mono text-xs" style={{ color: "var(--muted)" }}>
-                          Lesson {lIdx + 1}
+                          Lesson {li + 1}
                         </span>
                         <div className="flex-1" />
-                        <button onClick={() => moveLesson(sIdx, lIdx, -1)} className="btn btn-ghost btn-sm" disabled={lIdx === 0}>↑</button>
-                        <button onClick={() => moveLesson(sIdx, lIdx, 1)} className="btn btn-ghost btn-sm" disabled={lIdx === sec.lessons.length - 1}>↓</button>
-                        <button onClick={() => removeLesson(sIdx, lIdx)} className="btn btn-ghost btn-sm" style={{ color: "var(--danger)" }}>Remove</button>
+                        <button onClick={() => moveLesson(mi, li, -1)} disabled={li === 0} className="btn btn-ghost btn-sm">↑</button>
+                        <button onClick={() => moveLesson(mi, li, 1)} disabled={li === mod.lessons.length - 1} className="btn btn-ghost btn-sm">↓</button>
+                        {confirmRemove === `lesson-${mi}-${li}` ? (
+                          <ConfirmInline
+                            label="Remove lesson?"
+                            onConfirm={() => { removeLesson(mi, li); setConfirmRemove(null); }}
+                            onCancel={() => setConfirmRemove(null)}
+                          />
+                        ) : (
+                          <button
+                            onClick={() => setConfirmRemove(`lesson-${mi}-${li}`)}
+                            className="btn btn-ghost btn-sm"
+                            style={{ color: "var(--danger)" }}
+                          >
+                            Remove
+                          </button>
+                        )}
                       </div>
-                      <input
-                        type="text"
-                        value={l.title}
-                        onChange={(e) => updateLesson(sIdx, lIdx, "title", e.target.value)}
-                        placeholder="Lesson title…"
-                        className="input mb-2"
-                      />
-                      <textarea
-                        value={l.content}
-                        onChange={(e) => updateLesson(sIdx, lIdx, "content", e.target.value)}
-                        rows={4}
-                        placeholder="Lesson content (plain text)…"
-                        className="input"
-                        style={{ resize: "vertical" }}
+                      <div className="grid grid-cols-1 sm:grid-cols-[1fr_120px] gap-2 mb-3">
+                        <input
+                          className="input"
+                          value={lesson.title}
+                          onChange={(e) => updateLesson(mi, li, { title: e.target.value })}
+                          placeholder="Lesson title…"
+                        />
+                        <input
+                          className="input"
+                          type="number"
+                          min="0"
+                          value={lesson.minutes}
+                          onChange={(e) => updateLesson(mi, li, { minutes: e.target.value })}
+                          placeholder="Minutes"
+                        />
+                      </div>
+                      <Editor
+                        content={lesson.html}
+                        onChange={(html) => updateLesson(mi, li, { html })}
+                        placeholder="Write the lesson…"
                       />
                     </div>
                   ))}
-                  <button onClick={() => addLesson(sIdx)} className="btn btn-outline btn-sm self-start">
+                  <button onClick={() => addLesson(mi)} className="btn btn-outline btn-sm self-start">
                     + Add lesson
                   </button>
                 </div>
               </div>
             ))}
-            <button onClick={addSection} className="btn btn-outline self-start">
-              + Add section
+            <button onClick={addModule} className="btn btn-outline self-start">
+              + Add module
             </button>
           </div>
 
-          {/* Preview */}
           <aside className="lg:col-span-4">
             <div className="card p-5 sticky top-20">
               <p className="eyebrow mb-3">Outline preview</p>
               <h3 className="font-display font-semibold text-lg mb-3" style={{ color: "var(--text)" }}>
                 {title || "Untitled course"}
               </h3>
-              {sections.length === 0 ? (
+              {modules.length === 0 ? (
                 <p className="text-sm" style={{ color: "var(--muted)" }}>No content yet.</p>
               ) : (
-                <ol className="flex flex-col gap-3">
-                  {sections.map((s, i) => (
-                    <li key={i}>
+                <ol className="flex flex-col gap-4">
+                  {modules.map((m, mi) => (
+                    <li key={mi}>
                       <p className="font-mono text-xs" style={{ color: "var(--muted)" }}>
-                        {String(i + 1).padStart(2, "0")}
+                        Module {String(mi + 1).padStart(2, "0")}
                       </p>
                       <p className="text-sm font-medium mb-1" style={{ color: "var(--text)" }}>
-                        {s.title || "Untitled section"}
+                        {m.title || "Untitled module"}
                       </p>
-                      <ul className="ml-3 text-xs" style={{ color: "var(--muted)" }}>
-                        {s.lessons.filter((l) => l.title.trim()).map((l, j) => (
-                          <li key={j}>· {l.title}</li>
+                      <ul className="ml-3 text-xs flex flex-col gap-1" style={{ color: "var(--muted)" }}>
+                        {m.lessons.filter((l) => l.title.trim()).map((l, j) => (
+                          <li key={j}>· {l.title} <span style={{ color: "var(--muted-2)" }}>({l.minutes || 0}m)</span></li>
                         ))}
                       </ul>
                     </li>
@@ -396,12 +513,13 @@ export function CreateCourse({ account, connect, courseRegistry }) {
     );
   }
 
-  // ── Step 3 — Review/Publish ──────────────────────────────────────────
-  const totalSections = sections.filter((s) => s.title.trim()).length;
-  const totalLessons = sections.reduce(
-    (acc, s) => acc + (s.title.trim() ? s.lessons.filter((l) => l.title.trim()).length : 0),
+  // ────── Step 3 ───────────────────────────────────────────────────────
+  const totalModules = modules.filter((m) => m.title.trim()).length;
+  const totalLessonsCt = modules.reduce(
+    (acc, m) => acc + (m.title.trim() ? m.lessons.filter((l) => l.title.trim()).length : 0),
     0
   );
+  const totalTx = 1 + totalModules + totalLessonsCt;
 
   return (
     <main className="max-w-3xl mx-auto px-6 py-12">
@@ -411,16 +529,29 @@ export function CreateCourse({ account, connect, courseRegistry }) {
           Review & Publish
         </h1>
       </header>
-
       <Stepper step={3} />
 
-      <div className="card p-4 mb-4" style={{ background: "var(--surface-2)" }}>
+      <div
+        className="card p-4 mb-4"
+        style={{ background: "var(--surface-2)", borderColor: "var(--accent)" }}
+      >
+        <p className="eyebrow mb-1" style={{ color: "var(--accent)" }}>Permanent</p>
+        <p className="text-sm" style={{ color: "var(--text)" }}>
+          Once published, course structure is permanent on the blockchain. You can add new
+          modules and lessons later but cannot edit or delete existing ones.
+        </p>
+      </div>
+
+      <div className="card p-4 mb-4">
         <p className="eyebrow mb-1">Transactions required</p>
         <p className="font-mono text-sm" style={{ color: "var(--text)" }}>
-          {1 + totalSections + totalLessons} ·{" "}
+          {totalTx} ·{" "}
           <span style={{ color: "var(--muted)" }}>
-            1 create + {totalSections} section{totalSections === 1 ? "" : "s"} + {totalLessons} lesson{totalLessons === 1 ? "" : "s"}
+            1 create + {totalModules} module{totalModules === 1 ? "" : "s"} + {totalLessonsCt} lesson{totalLessonsCt === 1 ? "" : "s"}
           </span>
+        </p>
+        <p className="font-mono text-xs mt-1" style={{ color: "var(--muted-2)" }}>
+          + {totalLessonsCt} IPFS upload{totalLessonsCt === 1 ? "" : "s"} for lesson content (off-chain, no gas)
         </p>
       </div>
 
@@ -431,9 +562,9 @@ export function CreateCourse({ account, connect, courseRegistry }) {
         </div>
         <div>
           <p className="eyebrow mb-1">Description</p>
-          <p className="text-sm leading-relaxed whitespace-pre-wrap" style={{ color: "var(--muted)" }}>{description}</p>
+          <p className="text-sm whitespace-pre-wrap" style={{ color: "var(--muted)" }}>{description}</p>
         </div>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <div>
             <p className="eyebrow mb-1">Price</p>
             <p className="font-mono text-base" style={{ color: "var(--text)" }}>
@@ -441,13 +572,37 @@ export function CreateCourse({ account, connect, courseRegistry }) {
             </p>
           </div>
           <div>
-            <p className="eyebrow mb-1">Sections</p>
-            <p className="font-mono text-base" style={{ color: "var(--text)" }}>{totalSections}</p>
+            <p className="eyebrow mb-1">Difficulty</p>
+            <p className="font-mono text-base" style={{ color: "var(--text)" }}>{difficulty}</p>
           </div>
           <div>
-            <p className="eyebrow mb-1">Lessons</p>
-            <p className="font-mono text-base" style={{ color: "var(--text)" }}>{totalLessons}</p>
+            <p className="eyebrow mb-1">Hours</p>
+            <p className="font-mono text-base" style={{ color: "var(--text)" }}>{hours || "—"}</p>
           </div>
+          <div>
+            <p className="eyebrow mb-1">Tags</p>
+            <p className="font-mono text-xs" style={{ color: "var(--muted)" }}>
+              {tags.length ? tags.map((t) => "#" + t).join(" ") : "—"}
+            </p>
+          </div>
+        </div>
+        <div>
+          <p className="eyebrow mb-2">Outline</p>
+          <ol className="flex flex-col gap-2">
+            {modules.filter((m) => m.title.trim()).map((m, mi) => {
+              const ll = m.lessons.filter((l) => l.title.trim());
+              return (
+                <li key={mi}>
+                  <p className="text-sm" style={{ color: "var(--text)" }}>
+                    <span className="font-mono text-xs mr-2" style={{ color: "var(--muted)" }}>
+                      M{String(mi + 1).padStart(2, "0")}
+                    </span>
+                    {m.title} <span style={{ color: "var(--muted-2)" }}>· {ll.length} lesson{ll.length === 1 ? "" : "s"}</span>
+                  </p>
+                </li>
+              );
+            })}
+          </ol>
         </div>
       </div>
 
