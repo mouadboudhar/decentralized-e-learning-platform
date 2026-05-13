@@ -414,6 +414,16 @@ export function CreateCourse({ account, connect, courseRegistry }) {
 
       <Stepper step={3} />
 
+      <div className="card p-4 mb-4" style={{ background: "var(--surface-2)" }}>
+        <p className="eyebrow mb-1">Transactions required</p>
+        <p className="font-mono text-sm" style={{ color: "var(--text)" }}>
+          {1 + totalSections + totalLessons} ·{" "}
+          <span style={{ color: "var(--muted)" }}>
+            1 create + {totalSections} section{totalSections === 1 ? "" : "s"} + {totalLessons} lesson{totalLessons === 1 ? "" : "s"}
+          </span>
+        </p>
+      </div>
+
       <div className="card p-6 mb-6 flex flex-col gap-4">
         <div>
           <p className="eyebrow mb-1">Title</p>
