@@ -63,7 +63,7 @@ export const COURSE_REGISTRY_ABI = [
       {
         "indexed": true,
         "internalType": "uint256",
-        "name": "sectionIndex",
+        "name": "moduleIndex",
         "type": "uint256"
       },
       {
@@ -77,9 +77,46 @@ export const COURSE_REGISTRY_ABI = [
         "internalType": "string",
         "name": "title",
         "type": "string"
+      },
+      {
+        "indexed": false,
+        "internalType": "string",
+        "name": "contentIpfsHash",
+        "type": "string"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes32",
+        "name": "contentHash",
+        "type": "bytes32"
       }
     ],
     "name": "LessonAdded",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "courseId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "moduleIndex",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "string",
+        "name": "title",
+        "type": "string"
+      }
+    ],
+    "name": "ModuleAdded",
     "type": "event"
   },
   {
@@ -118,31 +155,6 @@ export const COURSE_REGISTRY_ABI = [
       },
       {
         "indexed": true,
-        "internalType": "uint256",
-        "name": "sectionIndex",
-        "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "string",
-        "name": "title",
-        "type": "string"
-      }
-    ],
-    "name": "SectionAdded",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "uint256",
-        "name": "courseId",
-        "type": "uint256"
-      },
-      {
-        "indexed": true,
         "internalType": "address",
         "name": "student",
         "type": "address"
@@ -160,22 +172,38 @@ export const COURSE_REGISTRY_ABI = [
       },
       {
         "internalType": "uint256",
-        "name": "sectionIndex",
+        "name": "moduleIndex",
         "type": "uint256"
       },
       {
         "internalType": "string",
-        "name": "lessonTitle",
+        "name": "title",
         "type": "string"
       },
       {
         "internalType": "string",
-        "name": "lessonContent",
+        "name": "contentIpfsHash",
         "type": "string"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "contentHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint256",
+        "name": "estimatedMinutes",
+        "type": "uint256"
       }
     ],
     "name": "addLesson",
-    "outputs": [],
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
     "stateMutability": "nonpayable",
     "type": "function"
   },
@@ -188,12 +216,23 @@ export const COURSE_REGISTRY_ABI = [
       },
       {
         "internalType": "string",
-        "name": "sectionTitle",
+        "name": "title",
+        "type": "string"
+      },
+      {
+        "internalType": "string",
+        "name": "description",
         "type": "string"
       }
     ],
-    "name": "addSection",
-    "outputs": [],
+    "name": "addModule",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
     "stateMutability": "nonpayable",
     "type": "function"
   },
@@ -356,7 +395,7 @@ export const COURSE_REGISTRY_ABI = [
       },
       {
         "internalType": "uint256",
-        "name": "sectionIndex",
+        "name": "moduleIndex",
         "type": "uint256"
       },
       {
@@ -376,8 +415,23 @@ export const COURSE_REGISTRY_ABI = [
           },
           {
             "internalType": "string",
-            "name": "content",
+            "name": "contentIpfsHash",
             "type": "string"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "contentHash",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "uint256",
+            "name": "estimatedMinutes",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "lessonIndex",
+            "type": "uint256"
           }
         ],
         "internalType": "struct CourseRegistry.Lesson",
@@ -397,7 +451,7 @@ export const COURSE_REGISTRY_ABI = [
       },
       {
         "internalType": "uint256",
-        "name": "sectionIndex",
+        "name": "moduleIndex",
         "type": "uint256"
       }
     ],
@@ -421,11 +475,11 @@ export const COURSE_REGISTRY_ABI = [
       },
       {
         "internalType": "uint256",
-        "name": "sectionIndex",
+        "name": "moduleIndex",
         "type": "uint256"
       }
     ],
-    "name": "getSection",
+    "name": "getModule",
     "outputs": [
       {
         "components": [
@@ -435,24 +489,17 @@ export const COURSE_REGISTRY_ABI = [
             "type": "string"
           },
           {
-            "components": [
-              {
-                "internalType": "string",
-                "name": "title",
-                "type": "string"
-              },
-              {
-                "internalType": "string",
-                "name": "content",
-                "type": "string"
-              }
-            ],
-            "internalType": "struct CourseRegistry.Lesson[]",
-            "name": "lessons",
-            "type": "tuple[]"
+            "internalType": "string",
+            "name": "description",
+            "type": "string"
+          },
+          {
+            "internalType": "uint256",
+            "name": "lessonCount",
+            "type": "uint256"
           }
         ],
-        "internalType": "struct CourseRegistry.Section",
+        "internalType": "struct CourseRegistry.Module",
         "name": "",
         "type": "tuple"
       }
@@ -468,7 +515,26 @@ export const COURSE_REGISTRY_ABI = [
         "type": "uint256"
       }
     ],
-    "name": "getSectionCount",
+    "name": "getModuleCount",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "courseId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getTotalLessons",
     "outputs": [
       {
         "internalType": "uint256",
