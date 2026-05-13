@@ -34,6 +34,13 @@ export function Courses({ account }) {
   const [filter, setFilter] = useState("all"); // all | free | paid
   const [sort, setSort] = useState("newest"); // newest | oldest | price-asc | price-desc
 
+  const filtersActive = !!searchInput || filter !== "all" || sort !== "newest";
+  const clearFilters = () => {
+    setSearchInput("");
+    setFilter("all");
+    setSort("newest");
+  };
+
   // Debounce search input by 300ms
   useEffect(() => {
     const id = setTimeout(() => setSearch(searchInput.trim().toLowerCase()), 300);
@@ -213,8 +220,13 @@ export function Courses({ account }) {
           </div>
           <div className="flex items-center gap-3 font-mono text-xs uppercase tracking-[0.16em]" style={{ color: "var(--muted)" }}>
             <span>
-              Showing {filtered.length} of {courses.length}
+              Showing {filtered.length} of {courses.length} course{courses.length === 1 ? "" : "s"}
             </span>
+            {filtersActive && (
+              <button onClick={clearFilters} className="btn btn-ghost btn-sm">
+                Clear filters
+              </button>
+            )}
             {diag && (
               <span style={{ color: "var(--muted-2)" }}>
                 · Chain {diag.chainId} · Block {diag.block}
