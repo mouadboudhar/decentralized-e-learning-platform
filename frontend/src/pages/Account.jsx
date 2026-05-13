@@ -35,7 +35,7 @@ function StatCard({ label, value }) {
   );
 }
 
-function InstructorCourseRow({ course, courseRegistry, account }) {
+function InstructorCourseRow({ course, courseRegistry }) {
   const [open, setOpen] = useState(false);
   const [sections, setSections] = useState([]); // [{ title, lessonCount }]
   const [sectionTitle, setSectionTitle] = useState("");
@@ -441,7 +441,6 @@ export function Account({ account, connect, courseRegistry, certificateNFT }) {
                 key={course.id}
                 course={course}
                 courseRegistry={courseRegistry}
-                account={account}
               />
             ))}
           </div>
